@@ -95,6 +95,9 @@ class Rover:
             self.reward -= 0.5 
             obs = self.get_observation()
             info = {}
+
+            self.env.render()
+
             return obs, self.reward, self.done, info
 
         new_pos = self.env.grid[new_x, new_y]
@@ -114,6 +117,9 @@ class Rover:
                 self.reward -=10
                 obs = self.get_observation()
                 info = {}
+       
+                self.env.render()
+
                 return obs, self.reward, self.done, info
             # Recompensa positiva si ha llegado por primera vez a la mina
             elif new_pos == self.mine_id and self.mined == False: 
