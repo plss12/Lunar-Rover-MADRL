@@ -2,7 +2,6 @@ import gymnasium as gym
 import numpy as np
 import pygame
 from enum import Enum
-import random
 
 # Acciones posibles para el Lunar Rover, centradas en el movimiento
 class RoverAction(Enum):
@@ -54,8 +53,12 @@ class Rover:
         self.mine_id = mine_id
         self.goal_id = goal_id
         self.position = start_pos
+
+        # Hay que aclarar si esta información es sabida por el Rover desde el inicio
+        # o será descubierta con la observación del mismo
         self.mine_pos = mine_pos
         self.goal_pos = goal_pos
+
         self.mined = False
         self.done = False
         self.reward = 0
@@ -64,23 +67,32 @@ class Rover:
     # Método independiente de cada Rover en el que puede
     # realizar movimientos por su cuenta
     def step(self, action):
+        # Comprobamos si el rover está terminado para no 
+        # continuar con el proceso del movimiento
         if self.done:
             obs = self.get_observation()
             info = {}
             return obs, self.reward, self.done, info
 
         x, y = self.position
-        if action == 1:  # Arriba
+        # Arriba
+        if action == 1:
             new_x, new_y = x - 1, y
-        elif action == 2:  # Abajo
+        # Abajo
+        elif action == 2: 
             new_x, new_y = x + 1, y
-        elif action == 3:  # Izquierda
+        # Izquierda
+        elif action == 3: 
             new_x, new_y = x, y - 1
-        elif action == 4:  # Derecha
+        # Derecha
+        elif action == 4:
             new_x, new_y = x, y + 1
-        elif action == 0:  # Descanso
+        # Descanso, y terminamos el proceso al no necesitar
+        # comprobaciones extras por no haber movimiento
+        elif action == 0:
             new_x, new_y = x, y
-            self.reward -= 0.5  # Penalización por descanso
+            # Penalización menor por gasto de energía en descanso
+            self.reward -= 0.5 
             obs = self.get_observation()
             info = {}
             return obs, self.reward, self.done, info
@@ -96,7 +108,7 @@ class Rover:
             elif new_pos == 2:
                 self.reward -= 8
             # Recompensa negativa por chocar con otro agente
-            # Además terminamos el proceso ya que no puede haber
+            # Además no movemos al rover ya que no puede haber
             # dos agentes en una misma posición
             elif new_pos in self.env.rovers_mines_goals.keys():
                 self.reward -=10
@@ -125,15 +137,21 @@ class Rover:
 
         self.env.grid[new_x, new_y] = self.agent_id
         self.position = (new_x, new_y)
-        self.reward -= 1  # Penalización por movimiento
+        # Penalización por gasto de energia en movimiento
+        self.reward -= 1 
 
         obs = self.get_observation()
         info = {}
+
+        # Falta aclarar si el conocimiento de la posición de la mina y la goal
+        # se conocerá inicialmente o se informará con las observaciones
 
         self.env.render()
 
         return obs, self.reward, self.done, info
 
+    # Función para obtener el trozo del mapa que es capaz de ver el Rover 
+    # según su campo de visión
     def get_observation(self):
         x, y = self.position
         min_x = max(x - self.vision_range, 0)
@@ -143,6 +161,8 @@ class Rover:
 
         return self.env.grid[min_x:max_x, min_y:max_y]
 
+    # Función para obtener los movimientos posibles para un Rover, teniendo
+    # en cuenta condiciones como no poder salir del mapa
     def get_movements(self):
         
         # Se comprueba si el Rover ha terminado
@@ -191,10 +211,6 @@ class LunarEnv(gym.Env):
         self.action_space = gym.spaces.MultiDiscrete([len(RoverAction)]*n_agents)
         self.observation_space = gym.spaces.Box(low=0, high=max([o.value for o in LunarObjects]) + n_agents * 3,
                                                 shape=(grid_size,grid_size), dtype=np.int32)
-        # self.observation_space = gym.spaces.Tuple(
-        #                         [gym.spaces.Box(low=0, high=max([o.value for o in LunarObjects]) + n_agents * 3, 
-        #                                         shape=(vision_range * 2 + 1, vision_range * 2 + 1), dtype=np.int32) 
-                                # for _ in range(n_agents)])
 
         if self.render_mode == 'human':
             pygame.init()
@@ -229,7 +245,7 @@ class LunarEnv(gym.Env):
         return obs, info 
     
     def _place_obstacles(self):
-        num_small_obstacles = np.random.randint(1, self.grid_size)
+        num_small_obstacles = np.random.randint(self.grid_size, 2*self.grid_size)
         num_big_obstacles = np.random.randint(1, self.grid_size)
         for _ in range(num_small_obstacles):
             pos = self._get_empty_position()
@@ -244,24 +260,40 @@ class LunarEnv(gym.Env):
             rover_pos = self._get_empty_position()
             self.grid[rover_pos] = rover_id
 
-            mine_pos = self._get_empty_position()
-            self.grid[mine_pos] = mine_id
+            # Define las mitades del mapa para separar las minas de las metas
+            half_height = self.grid_size // 2
 
-            goal_pos = self._get_empty_position()
+            # Decide aleatoriamente en qué mitad estará la mina y en cuál la meta
+            if np.random.choice([True, False]):
+                # Mina en la primera mitad, meta en la segunda mitad
+                mine_pos = self._get_empty_position(0, half_height, 0, self.grid_size)
+                goal_pos = self._get_empty_position(half_height, self.grid_size, 0, self.grid_size)
+            else:
+                # Mina en la segunda mitad, meta en la primera mitad
+                mine_pos = self._get_empty_position(half_height, self.grid_size, 0, self.grid_size)
+                goal_pos = self._get_empty_position(0, half_height, 0, self.grid_size)
+
+            self.grid[mine_pos] = mine_id
             self.grid[goal_pos] = goal_id
 
             rover = Rover(self, rover_id, mine_id, goal_id, rover_pos, mine_pos, goal_pos, self.vision_range)
             self.rovers.append(rover)
-    
-    def _get_empty_position(self):
+
+    # Obtener una posición vacia, con la posibilidad de elegir unos límites en donde buscar
+    def _get_empty_position(self, min_row=0, max_row=None, min_col=0, max_col=None):
+        max_row = max_row if max_row is not None else self.grid_size
+        max_col = max_col if max_col is not None else self.grid_size
+
         while True:
-            pos = (np.random.randint(self.grid_size), np.random.randint(self.grid_size))
+            pos = (np.random.randint(min_row, max_row), np.random.randint(min_col, max_col))
             if self.grid[pos] == 0:
                 return pos
     
+    # Obtiene la suma de las recompensas de todos los rovers
     def _get_reward(self):
         return sum([rover.reward for rover in self.rovers])
-        
+    
+    # Obtiene un bool según si han terminado o no todos los rovers
     def _get_done(self):
         return all(rover.done for rover in self.rovers)   
 
@@ -302,6 +334,14 @@ class LunarEnv(gym.Env):
         if self.render_mode is None:
             return
         
+        # Tamaño del área adicional para mostrar la información
+        info_width = 200
+        screen_width = self.grid_size * 50 + info_width
+        screen_height = self.grid_size * 50
+
+        # Ampliar la ventana de Pygame
+        self.screen = pygame.display.set_mode((screen_width, screen_height))
+
         # Manejo de eventos de Pygame
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -347,111 +387,31 @@ class LunarEnv(gym.Env):
                     text_rect = text_surface.get_rect(center=(y * 50 + 25, x * 50 + 25))  # Centrar el texto en el rectángulo
                     self.screen.blit(text_surface, text_rect)
 
+        # Ajustar el tamaño de fuente dinámicamente según el número de agentes
+        info_font_size = 24
+        info_font = pygame.font.Font(None, info_font_size)
+        
+        info_x = self.grid_size * 50 + 10
+        info_y = 10
+
+        for i, rover in enumerate(self.rovers):
+            info_texts = [
+                f"Rover {i+1}:",
+                f"  Reward: {rover.reward}",
+                f"  Position: {rover.position}"
+            ]
+            for text in info_texts:
+                info_surface = info_font.render(text, True, (255, 255, 255))
+                self.screen.blit(info_surface, (info_x, info_y))
+
+                info_y += 30  # Espacio entre líneas
         # Actualizar la pantalla
         pygame.display.flip()
 
         # Control de la tasa de actualización
         self.clock.tick(self.metadata['render_fps'])
 
-
     def close(self):
         if self.render_mode == 'human':
             pygame.display.quit()
             pygame.quit()
-
-def prueba_manual(n_agents):   
-
-    # Iniciamos un nuevo entorno
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=10, vision_range=2)
-    env.reset()
-
-    # Establecer la lista de agentes completados
-    dones = [False] * n_agents
-    current_agent = 0
-
-    while not all(dones):
-        # Capturar eventos de teclado
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
-            elif event.type == pygame.KEYDOWN:
-                # Asignar acción basada en la tecla presionada
-                if event.key == pygame.K_UP:
-                    user_action = RoverAction.UP.value
-                elif event.key == pygame.K_DOWN:
-                    user_action = RoverAction.DOWN.value
-                elif event.key == pygame.K_LEFT:
-                    user_action = RoverAction.LEFT.value
-                elif event.key == pygame.K_RIGHT:
-                    user_action = RoverAction.RIGHT.value
-                elif event.key == pygame.K_SPACE:
-                    user_action = RoverAction.WAIT.value
-                else:
-                    user_action = None
-
-                if user_action is not None:
-                    rover = env.unwrapped.rovers[current_agent]
-
-                    # Si el rover a terminado buscamos uno que no haya terminado
-                    if rover.done:
-                        while rover.done:
-                            current_agent = (current_agent + 1) % n_agents
-                            rover = env.unwrapped.rovers[current_agent]
-
-                    # Comprobamos si la acción es válida en el agente
-                    if user_action in rover.get_movements():
-                        obs, reward, done, info = rover.step(user_action)
-                        # print(f"Rover {current_agent} realiza movimiento {user_action} con recompensa {reward}")
-                        dones[current_agent] = done
-                        current_agent = (current_agent + 1) % n_agents
-
-    print("Simulación completada")
-    env.close()
-
-def prueba_conjunta(n_agents):
-    
-    # Iniciamos un nuevo entorno
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=10, vision_range=2)
-    env.reset()
-    done = False
-
-    # Acciones realizadas conjuntamente por el env
-    while not done:
-        actions = env.action_space.sample()
-        obs, reward, done, truncated, info = env.step(actions)
-        # print(f"Finalizada fase de ejecución con {reward} de recompensa")
-    
-    print("Simulación completada")
-    env.close()
-
-def prueba_individual(n_agents):
-    # Iniciamos un nuevo entorno
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=10, vision_range=2)
-    env.reset()
-
-    # Acciones realizadas independientemente por cada Rover
-    dones = [False]*n_agents
-    while not all(dones):
-        for i, rover in enumerate(env.unwrapped.rovers):
-            if rover.done == False:
-                action = random.choice(rover.get_movements())
-                obs, reward, done, info = rover.step(action)
-                # print(f"Rover {i} realiza movimiento {action} con recompensa {reward}")
-            else:
-                dones[i] = True
-                # print(f"Rover {i} ya terminado con recompensa {rover.reward}")
-
-    print("Simulación completada")
-    env.close()
-
-def main():
-    
-    # prueba_manual(1)
-    # prueba_individual(1)
-    # prueba_conjunta(1)
-
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=2, grid_size=10, vision_range=2)
-
-if __name__ == "__main__":
-    main()
