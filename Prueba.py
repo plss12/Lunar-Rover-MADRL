@@ -91,7 +91,7 @@ def prueba_individual(n_agents):
 
 def main():
     
-    prueba_manual(5)
+    prueba_manual(2)
     # prueba_individual(1)
     # prueba_conjunta(1)
 
