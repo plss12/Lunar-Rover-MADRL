@@ -167,15 +167,29 @@ class Rover:
         return obs, self.reward, self.done, info
 
     # Función para obtener el trozo del mapa que es capaz de ver el Rover 
-    # según su campo de visión
+    # según su campo de visión. Para que devuelva siempre una matriz del 
+    # mismo tamaño, los espacios fuera del mapa serán representados por -1
     def get_observation(self):
         x, y = self.position
+
+        # Se obtiene una matriz de -1 según el rango de visión
+        obs_size = 2 * self.vision_range + 1
+        observation = -1 * np.ones((obs_size, obs_size), dtype=int)
+
         min_x = max(x - self.vision_range, 0)
         max_x = min(x + self.vision_range + 1, self.env.grid.shape[0])
         min_y = max(y - self.vision_range, 0)
         max_y = min(y + self.vision_range + 1, self.env.grid.shape[1])
 
-        return self.env.grid[min_x:max_x, min_y:max_y]
+        # Definir índices en la matriz de observación donde copiar los datos del mapa
+        start_x = self.vision_range - (x - min_x)
+        end_x = start_x + (max_x - min_x)
+        start_y = self.vision_range - (y - min_y)
+        end_y = start_y + (max_y - min_y)
+
+        observation[start_x:end_x, start_y:end_y] = self.env.grid[min_x:max_x, min_y:max_y]
+
+        return observation
 
     # Función para obtener los movimientos posibles para un Rover, teniendo
     # en cuenta condiciones como no poder salir del mapa
