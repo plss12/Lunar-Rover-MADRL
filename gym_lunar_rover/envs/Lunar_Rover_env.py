@@ -54,8 +54,11 @@ class Rover:
 
         # Hay que aclarar si esta información es sabida por el Rover desde el inicio
         # o será descubierta con la observación del mismo
-        self.mine_pos = mine_pos
-        self.blender = blender_pos
+        # self.mine_pos = None
+        # self.blender_pos = None
+
+        self.mine_pos= mine_pos
+        self.blender_pos = blender_pos
 
         self.mined = False
         self.done = False
@@ -156,11 +159,10 @@ class Rover:
         # Penalización por gasto de energia en movimiento
         self.reward -= 1 
 
+        # Si la posición de la mina y la goal se descubre con la observación
+        # será añadida al rover tras realizar el movimiento
         obs = self.get_observation()
         info = {}
-
-        # Falta aclarar si el conocimiento de la posición de la mina y la goal
-        # se conocerá inicialmente o se informará con las observaciones
 
         self.env.render()
 
@@ -188,6 +190,17 @@ class Rover:
         end_y = start_y + (max_y - min_y)
 
         observation[start_x:end_x, start_y:end_y] = self.env.grid[min_x:max_x, min_y:max_y]
+
+        # Si la información de la mina y la meta se obtienen con observación se añade aquí
+        if self.mine_pos == None:
+            mine_position = np.argwhere(observation == self.mine_id)
+            if len(mine_position) > 0:
+                self.mine_pos = tuple(np.argwhere(self.env.grid == self.mine_id)[0])
+
+        elif self.blender_pos == None:
+            blender_position = np.argwhere(observation == LunarObjects.BLENDER.value)
+            if len(blender_position) > 0:
+                self.blender_pos = tuple(np.argwhere(self.env.grid == LunarObjects.BLENDER.value)[0])
 
         return observation
 
