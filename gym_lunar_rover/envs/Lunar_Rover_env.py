@@ -16,6 +16,7 @@ class LunarObjects(Enum):
     FLOOR = 0
     SMALL_OBSTACLE = 1
     BIG_OBSTACLE = 2
+    BLENDER = 3
 
 # Representación de los Rovers y sus localizaciones asignadas
 class RoversObjects:
@@ -23,41 +24,38 @@ class RoversObjects:
         self.num_agents = num_agents
         self.objects = {}
 
-        self._add_rovers_mines_goals()
+        self._add_rovers_mines()
     
-    # Añadimos los rovers, minas y puntos de recogida dinamicamente según el número de agentes
-    def _add_rovers_mines_goals(self):
+    # Añadimos los rovers y sus dinamicamente según el número de agentes
+    def _add_rovers_mines(self):
         max_value = max(item.value for item in LunarObjects)
         for i in range(1, self.num_agents + 1):
 
-            self.objects[f'ROVER_{i}'] = max_value + i * 3 - 2
-            self.objects[f'MINE_{i}'] = max_value + i * 3 - 1
-            self.objects[f'GOAL_{i}'] = max_value + i * 3
+            self.objects[f'ROVER_{i}'] = max_value + i * 2 - 1
+            self.objects[f'MINE_{i}'] = max_value + i * 2
 
     # Método para obtener el número que representa a los agentes y sus minas y puntos de recogida
-    def get_agents_mines_goals(self):
-        agents_mines_goals = {}
+    def get_agents_mines(self):
+        agents_mines = {}
         for i in range(1, self.num_agents + 1):
             rover_name = f'ROVER_{i}'
             mine_name = f'MINE_{i}'
-            goal_name = f'GOAL_{i}'
             
-            agents_mines_goals[self.objects[rover_name]] = (self.objects[mine_name], self.objects[goal_name])
+            agents_mines[self.objects[rover_name]] = self.objects[mine_name]
         
-        return agents_mines_goals
+        return agents_mines
 
 class Rover:
-    def __init__(self, env, agent_id, mine_id, goal_id, start_pos, mine_pos, goal_pos, vision_range):
+    def __init__(self, env, agent_id, mine_id, start_pos, mine_pos, blender_pos, vision_range):
         self.env = env
         self.agent_id = agent_id
         self.mine_id = mine_id
-        self.goal_id = goal_id
         self.position = start_pos
 
         # Hay que aclarar si esta información es sabida por el Rover desde el inicio
         # o será descubierta con la observación del mismo
         self.mine_pos = mine_pos
-        self.goal_pos = goal_pos
+        self.blender = blender_pos
 
         self.mined = False
         self.done = False
@@ -104,16 +102,16 @@ class Rover:
 
         # Comprobamos si la nueva posición está o no vacia
         if new_pos !=0:
-            # Recompensa negativa por obstáculo pequeño
+            # Recompensa negativa por obstáculo pequeño (1)
             if new_pos == 1:
                 self.reward -= 3
-            # Recompensa negativa por obstáculo grande
+            # Recompensa negativa por obstáculo grande (2)
             elif new_pos == 2:
                 self.reward -= 8
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
             # dos agentes en una misma posición
-            elif new_pos in self.env.rovers_mines_goals.keys():
+            elif new_pos in self.env.rovers_mines_ids.keys():
                 self.reward -=10
                 obs = self.get_observation()
                 info = {}
@@ -125,18 +123,30 @@ class Rover:
             elif new_pos == self.mine_id and self.mined == False: 
                 self.reward += 100
                 self.mined = True
-            # Recompensa positiva si ha llegado al punto de recogida tras minar
-            elif new_pos == self.goal_id and self.mined == True:
+            # Recompensa positiva si ha llegado al punto de recogida (3) tras minar
+            elif new_pos == 3 and self.mined == True:
                 self.reward += 500
                 self.done = True
+
+                # Al terminar el Rover se debe borrar del mapa para que los demás
+                # Rovers puedan entrar en el Blender sin que esté ocupada la posición
+                self.env.grid[x, y] = self.env.initial_grid[x, y]
+                self.position = (new_x, new_y)
+                
+                obs = self.get_observation()
+                info = {}
+
+                self.env.render()
+
+                return obs, self.reward, self.done, info
 
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa
 
         # Si inicialmente en esa posición había un agente
         # en este caso si se coloca un espacio vacio en el mapa
-        if (self.env.initial_grid[x, y] in self.env.rovers_mines_goals.keys()):
-            self.env.grid[x, y] = LunarObjects.FLOOR.value        
+        if (self.env.initial_grid[x, y] in self.env.rovers_mines_ids.keys()):
+            self.env.grid[x, y] = LunarObjects.FLOOR.value      
 
         else:
             self.env.grid[x, y] = self.env.initial_grid[x, y]
@@ -202,14 +212,15 @@ class LunarEnv(gym.Env):
 
     metadata = {"render_modes": ["human"], "render_fps": 100}
 
-    def __init__(self, n_agents, grid_size, vision_range,  render_mode=None):
+    def __init__(self, n_agents, grid_size, vision_range, render_mode=None):
         self.n_agents = n_agents
         self.grid_size = grid_size
         self.vision_range = vision_range
         self.render_mode = render_mode
 
-        self.rovers_mines_goals = None
-        self.rovers = None
+        self.rovers_mines_ids = None
+        self.rovers = []
+        self.blender_pos = None
         self.grid = None
         self.initial_grid = None
         self.total_reward = 0
@@ -228,18 +239,17 @@ class LunarEnv(gym.Env):
 
         # Inicializamos el mapa y creamos los agentes y sus objetivos
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
-        self.rovers_mines_goals = RoversObjects(self.n_agents).get_agents_mines_goals()
+        self.rovers_mines_ids = RoversObjects(self.n_agents).get_agents_mines()
 
         # Colocamos obstáculos y creamos y colocamos agentes y objetivos en el mapa
-        self._place_obstacles()
-        self._place_rovers_mines_goals()
+        self._place_obstacles_goal()
+        self._place_rovers_mines()
 
         self.initial_grid = np.copy(self.grid)
 
         # Definir colores para los rovers, minas y metas
         self.agent_colors = {}
         self.mine_colors = {}
-        self.goal_colors = {}
         self._assign_colors()
 
         obs = self.grid
@@ -250,7 +260,7 @@ class LunarEnv(gym.Env):
 
         return obs, info 
     
-    def _place_obstacles(self):
+    def _place_obstacles_goal(self):
         num_small_obstacles = np.random.randint(self.grid_size, 2*self.grid_size)
         num_big_obstacles = np.random.randint(1, self.grid_size)
         for _ in range(num_small_obstacles):
@@ -259,30 +269,19 @@ class LunarEnv(gym.Env):
         for _ in range(num_big_obstacles):
             pos = self._get_empty_position()
             self.grid[pos] = LunarObjects.BIG_OBSTACLE.value
+        pos = self._get_empty_position()
+        self.grid[pos] = LunarObjects.BLENDER.value
+        self.blender_pos = pos
     
-    def _place_rovers_mines_goals(self):
-        self.rovers = []
-        for rover_id, (mine_id, goal_id) in self.rovers_mines_goals.items():
+    def _place_rovers_mines(self):
+        for rover_id, mine_id in self.rovers_mines_ids.items():
             rover_pos = self._get_empty_position()
             self.grid[rover_pos] = rover_id
 
-            # Define las mitades del mapa para separar las minas de las metas
-            half_height = self.grid_size // 2
-
-            # Decide aleatoriamente en qué mitad estará la mina y en cuál la meta
-            if np.random.choice([True, False]):
-                # Mina en la primera mitad, meta en la segunda mitad
-                mine_pos = self._get_empty_position(0, half_height, 0, self.grid_size)
-                goal_pos = self._get_empty_position(half_height, self.grid_size, 0, self.grid_size)
-            else:
-                # Mina en la segunda mitad, meta en la primera mitad
-                mine_pos = self._get_empty_position(half_height, self.grid_size, 0, self.grid_size)
-                goal_pos = self._get_empty_position(0, half_height, 0, self.grid_size)
-
+            mine_pos = self._get_empty_position()
             self.grid[mine_pos] = mine_id
-            self.grid[goal_pos] = goal_id
 
-            rover = Rover(self, rover_id, mine_id, goal_id, rover_pos, mine_pos, goal_pos, self.vision_range)
+            rover = Rover(self, rover_id, mine_id, rover_pos, mine_pos, self.blender_pos, self.vision_range)
             self.rovers.append(rover)
 
     # Obtener una posición vacia, con la posibilidad de elegir unos límites en donde buscar
@@ -302,14 +301,32 @@ class LunarEnv(gym.Env):
     # Obtiene un bool según si han terminado o no todos los rovers
     def _get_done(self):
         return all(rover.done for rover in self.rovers)   
-
+    
     def _assign_colors(self):
-        # Generar colores dinámicamente para los rovers, minas y metas
-        for agent_id, (mine_id, goal_id) in self.rovers_mines_goals.items():
-            color = (agent_id * 50 % 255, agent_id * 80 % 255, agent_id * 110 % 255)
+        colors = [(0,234,255),      # Cian
+                (239, 69, 191),   # Rosa
+                (0, 0, 255),      # Azul
+                (255, 165, 0),    # Naranja
+                (145, 30, 180),   # Morado
+                (154, 99, 36),    # Marrón
+                (191, 239, 69),   # Pistacho
+                (128, 128, 0),    # Oliva
+                (245, 245, 220),  # Beige
+                (0, 128, 128)]    # Verde azulado
+
+        def generate_random_color(existing_colors):
+            while True:
+                new_color = (np.random.randint(0, 255), np.random.randint(0, 255), np.random.randint(0, 255))
+                if new_color not in existing_colors:
+                    return new_color
+
+        for agent_id, mine_id in self.rovers_mines_ids.items():
+            if colors:
+                color = colors.pop(0)
+            else:
+                color = generate_random_color(self.agent_colors.values())
             self.agent_colors[agent_id] = color
             self.mine_colors[mine_id] = color
-            self.goal_colors[goal_id] = color
     
     # Método para centralizar movimientos de los Rovers
     def step(self, actions):
@@ -340,14 +357,6 @@ class LunarEnv(gym.Env):
         if self.render_mode is None:
             return
         
-        # Tamaño del área adicional para mostrar la información
-        info_width = 200
-        screen_width = self.grid_size * 50 + info_width
-        screen_height = self.grid_size * 50
-
-        # Ampliar la ventana de Pygame
-        self.screen = pygame.display.set_mode((screen_width, screen_height))
-
         # Manejo de eventos de Pygame
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -355,15 +364,18 @@ class LunarEnv(gym.Env):
                 quit()
 
         # Definir colores
-        floor = (200, 200, 200)
-        small_object = (0, 255, 0)
-        big_object = (255, 0, 0)
+        floor = (200, 200, 200) # Gris claro
+        small_object = (255, 255, 0) # Amarillo
+        big_object = (255, 0, 0) # Rojo
+        blender_object = (0, 255, 0) # Verde
+        border_color = (50, 50, 50) # Negro
 
         # Limpiar la pantalla
         self.screen.fill((0, 0, 0))
 
         font = pygame.font.Font(None, 36)
 
+        # Se imprimen los colores y el texto según el objeto que haya en la casilla
         for x in range(self.grid_size):
             for y in range(self.grid_size):
                 value = self.grid[x, y]
@@ -375,6 +387,9 @@ class LunarEnv(gym.Env):
                     color = small_object
                 elif value == LunarObjects.BIG_OBSTACLE.value:
                     color = big_object
+                elif value == LunarObjects.BLENDER.value:
+                    color = blender_object
+                    text = "B"
                 
                 elif value in self.agent_colors.keys():
                     color = self.agent_colors[value]
@@ -382,35 +397,15 @@ class LunarEnv(gym.Env):
                 elif value in self.mine_colors.keys():
                     color = self.mine_colors[value]
                     text = "M"
-                elif value in self.goal_colors.keys():
-                    color = self.goal_colors[value]
-                    text = "G"
 
                 pygame.draw.rect(self.screen, color, pygame.Rect(y * 50, x * 50, 50, 50))
+                pygame.draw.rect(self.screen, border_color, pygame.Rect(y * 50, x * 50, 50, 50), 1)
 
                 if text:
-                    text_surface = font.render(text, True, (0, 0, 0))  # Texto en color negro
-                    text_rect = text_surface.get_rect(center=(y * 50 + 25, x * 50 + 25))  # Centrar el texto en el rectángulo
+                    text_surface = font.render(text, True, (0, 0, 0))
+                    text_rect = text_surface.get_rect(center=(y * 50 + 25, x * 50 + 25))
                     self.screen.blit(text_surface, text_rect)
 
-        # Ajustar el tamaño de fuente dinámicamente según el número de agentes
-        info_font_size = 24
-        info_font = pygame.font.Font(None, info_font_size)
-        
-        info_x = self.grid_size * 50 + 10
-        info_y = 10
-
-        for i, rover in enumerate(self.rovers):
-            info_texts = [
-                f"Rover {i+1}:",
-                f"  Reward: {rover.reward}",
-                f"  Position: {rover.position}"
-            ]
-            for text in info_texts:
-                info_surface = info_font.render(text, True, (255, 255, 255))
-                self.screen.blit(info_surface, (info_x, info_y))
-
-                info_y += 30  # Espacio entre líneas
         # Actualizar la pantalla
         pygame.display.flip()
 
