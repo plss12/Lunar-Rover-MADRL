@@ -210,7 +210,7 @@ class Rover:
     
 class LunarEnv(gym.Env):
 
-    metadata = {"render_modes": ["human"], "render_fps": 100}
+    metadata = {"render_modes": ["human"], "render_fps": 120}
 
     def __init__(self, n_agents, grid_size, vision_range, render_mode=None):
         self.n_agents = n_agents
