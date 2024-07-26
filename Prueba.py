@@ -2,12 +2,24 @@ import random
 import gymnasium as gym
 import pygame
 from gym_lunar_rover.envs.Lunar_Rover_env import RoverAction
+from gym_lunar_rover.envs.Info_tk import RoverInfoWindow
+import threading
+import tkinter as tk
 
-def prueba_manual(n_agents):   
+def prueba_manual(n_agents, grid_size, vision_range):   
 
     # Iniciamos un nuevo entorno
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=10, vision_range=2)
+    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range)
     env.reset()
+
+    # Creamos una ventana independiente con información de los Rovers
+    # Esta ventana se debe ejecutar en un hilo separado para no
+    # interferir en el hilo principal de ejecución de la simulación
+    root = tk.Tk()
+    info_window = RoverInfoWindow(root, env)
+
+    tk_thread = threading.Thread(target=root.mainloop)
+    tk_thread.start()
 
     # Establecer la lista de agentes completados
     dones = [False] * n_agents
@@ -50,13 +62,16 @@ def prueba_manual(n_agents):
                         dones[current_agent] = done
                         current_agent = (current_agent + 1) % n_agents
 
+                        # Actualizamos la información de la ventana de información
+                        info_window.update_info()
+
     print("Simulación completada")
     env.close()
 
-def prueba_conjunta(n_agents):
+def prueba_conjunta(n_agents, grid_size, vision_range):
     
     # Iniciamos un nuevo entorno
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=10, vision_range=2)
+    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range)
     env.reset()
     done = False
 
@@ -69,9 +84,9 @@ def prueba_conjunta(n_agents):
     print("Simulación completada")
     env.close()
 
-def prueba_individual(n_agents):
+def prueba_individual(n_agents, grid_size, vision_range):
     # Iniciamos un nuevo entorno
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=10, vision_range=2)
+    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range)
     env.reset()
 
     # Acciones realizadas independientemente por cada Rover
@@ -90,10 +105,13 @@ def prueba_individual(n_agents):
     env.close()
 
 def main():
-    
-    prueba_manual(2)
-    # prueba_individual(1)
-    # prueba_conjunta(1)
+    n_agents = 5
+    grid_size = 15 
+    vision_range = 4
+
+    prueba_manual(n_agents, grid_size, vision_range)
+    # prueba_individual(n_agents, grid_size, vision_range)
+    # prueba_conjunta(n_agents, grid_size, vision_range)
 
 if __name__ == "__main__":
     main()
