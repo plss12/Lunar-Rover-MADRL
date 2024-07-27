@@ -11,7 +11,7 @@ class RoverInfoWindow(tk.Tk):
         self.setup_ui()
         self.refresh_interval = 100
         self.update_info()
-
+        
     def setup_ui(self):
         main_frame = tk.Frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -42,7 +42,7 @@ class RoverInfoWindow(tk.Tk):
             reward_label.grid(row=1, column=0, sticky="w")
             
             position_label = tk.Label(rover_frame, font=("Helvetica", 12))
-            
+
             mined_label = tk.Label(rover_frame, font=("Helvetica", 12))
             mined_label.grid(row=2, column=0, sticky="w")
 
@@ -63,9 +63,13 @@ class RoverInfoWindow(tk.Tk):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def update_info(self):
+
         for i, rover in enumerate(self.rovers):
+            # Normalizamos la posición a coordenadas x,y reales
+            pos = (rover.position[1], self.env.grid_size - rover.position[0] - 1)
+
             rover_frame = self.rover_frames[i]
-            rover_frame["name"].config(text=f"Rover {i+1} {rover.position}:")
+            rover_frame["name"].config(text=f"Rover {i+1} {pos}:")
             rover_frame["reward"].config(text=f"  Reward: {rover.reward}")
             rover_frame["mined"].config(text=f"  Mined: {rover.mined}")
             rover_frame["done"].config(text=f"  Done: {rover.done}")
