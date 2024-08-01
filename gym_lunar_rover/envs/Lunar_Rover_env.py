@@ -62,7 +62,7 @@ class Rover:
 
         self.mined = False
         self.done = False
-        self.reward = 0
+        self.total_reward = 0
         self.vision_range = vision_range
 
     # Método independiente de cada Rover en el que puede
@@ -73,7 +73,8 @@ class Rover:
         if self.done:
             obs = self.get_observation()
             info = {}
-            return obs, self.reward, self.done, info
+            reward = 0
+            return obs, reward, self.done, info
 
         x, y = self.position
         # Arriba
@@ -93,13 +94,15 @@ class Rover:
         elif action == 0:
             new_x, new_y = x, y
             # Penalización menor por gasto de energía en descanso
-            self.reward -= 0.5 
+            reward = -0.5
+            self.total_reward += reward
             obs = self.get_observation()
             info = {}
 
-            self.env.render()
+            if self.env.unwrapped.render_mode == 'human':
+                self.env.render()
 
-            return obs, self.reward, self.done, info
+            return obs, reward, self.done, info
 
         new_pos = self.env.grid[new_x, new_y]
 
@@ -107,28 +110,34 @@ class Rover:
         if new_pos !=0:
             # Recompensa negativa por obstáculo pequeño (1)
             if new_pos == 1:
-                self.reward -= 3
+                reward = -3
+                self.total_reward += reward
             # Recompensa negativa por obstáculo grande (2)
             elif new_pos == 2:
-                self.reward -= 8
+                reward = -8
+                self.total_reward += reward
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
             # dos agentes en una misma posición
             elif new_pos in self.env.rovers_mines_ids.keys():
-                self.reward -=10
+                reward = -10
+                self.total_reward += reward
                 obs = self.get_observation()
                 info = {}
-       
-                self.env.render()
+                
+                if self.env.unwrapped.render_mode == 'human':
+                    self.env.render()
 
-                return obs, self.reward, self.done, info
+                return obs, reward, self.done, info
             # Recompensa positiva si ha llegado por primera vez a la mina
             elif new_pos == self.mine_id and self.mined == False: 
-                self.reward += 100
+                reward = 100
+                self.total_reward += reward
                 self.mined = True
             # Recompensa positiva si ha llegado al punto de recogida (3) tras minar
             elif new_pos == 3 and self.mined == True:
-                self.reward += 500
+                reward = 500
+                self.total_reward += reward
                 self.done = True
 
                 # Al terminar el Rover se debe borrar del mapa para que los demás
@@ -139,9 +148,10 @@ class Rover:
                 obs = self.get_observation()
                 info = {}
 
-                self.env.render()
+                if self.env.unwrapped.render_mode == 'human':
+                    self.env.render()
 
-                return obs, self.reward, self.done, info
+                return obs, reward, self.done, info
 
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa
@@ -157,16 +167,18 @@ class Rover:
         self.env.grid[new_x, new_y] = self.agent_id
         self.position = (new_x, new_y)
         # Penalización por gasto de energia en movimiento
-        self.reward -= 1 
+        reward = -1
+        self.total_reward += reward
 
         # Si la posición de la mina y la goal se descubre con la observación
         # será añadida al rover tras realizar el movimiento
         obs = self.get_observation()
         info = {}
 
-        self.env.render()
+        if self.env.unwrapped.render_mode == 'human':
+            self.env.render()
 
-        return obs, self.reward, self.done, info
+        return obs, reward, self.done, info
 
     # Función para obtener el trozo del mapa que es capaz de ver el Rover 
     # según su campo de visión. Para que devuelva siempre una matriz del 
@@ -237,9 +249,10 @@ class Rover:
     
 class LunarEnv(gym.Env):
 
-    metadata = {"render_modes": ["human"], "render_fps": 120}
+    metadata = {"render_modes": ["human","train"], "render_fps": 120}
 
     def __init__(self, n_agents, grid_size, vision_range, render_mode=None):
+        super(LunarEnv, self).__init__()
         self.n_agents = n_agents
         self.grid_size = grid_size
         self.vision_range = vision_range
@@ -253,9 +266,14 @@ class LunarEnv(gym.Env):
         self.total_reward = 0
 
         self.action_space = gym.spaces.MultiDiscrete([len(RoverAction)]*n_agents)
-        self.observation_space = gym.spaces.Box(low=0, high=max([o.value for o in LunarObjects]) + n_agents * 3,
-                                                shape=(grid_size,grid_size), dtype=np.int32)
+        # self.observation_space = gym.spaces.Box(low=0, high=max([o.value for o in LunarObjects]) + n_agents * 2,
+        #                                         shape=(n_agents,vision_range,vision_range), dtype=np.int32)
 
+        self.observation_space = gym.spaces.Tuple(
+                                [gym.spaces.Box(low=-1, high=max([o.value for o in LunarObjects]) + n_agents * 2, 
+                                                shape=(vision_range * 2 + 1, vision_range * 2 + 1), dtype=np.int32) 
+                                for _ in range(n_agents)])
+        
         if self.render_mode == 'human':
             pygame.init()
             self.screen = pygame.display.set_mode((self.grid_size * 50, self.grid_size * 50))
@@ -279,7 +297,7 @@ class LunarEnv(gym.Env):
         self.mine_colors = {}
         self._assign_colors()
 
-        obs = self.grid
+        obs = self._get_obs()
         info = {}
 
         if self.render_mode=='human':
@@ -288,8 +306,8 @@ class LunarEnv(gym.Env):
         return obs, info 
     
     def _place_obstacles_goal(self):
-        num_small_obstacles = np.random.randint(self.grid_size, 2*self.grid_size)
-        num_big_obstacles = np.random.randint(1, self.grid_size)
+        num_small_obstacles = np.random.randint(2*self.grid_size, 4*self.grid_size)
+        num_big_obstacles = np.random.randint(self.grid_size/2, self.grid_size)
         for _ in range(num_small_obstacles):
             pos = self._get_empty_position()
             self.grid[pos] = LunarObjects.SMALL_OBSTACLE.value
@@ -322,12 +340,23 @@ class LunarEnv(gym.Env):
                 return pos
     
     # Obtiene la suma de las recompensas de todos los rovers
-    def _get_reward(self):
+    def _get_total_reward(self):
         return sum([rover.reward for rover in self.rovers])
     
     # Obtiene un bool según si han terminado o no todos los rovers
     def _get_done(self):
         return all(rover.done for rover in self.rovers)   
+    
+    # Obtiene todas las observaciones de los rovers
+    def _get_obs(self):
+        obs = []
+        for rover in self.rovers:
+            obs.append(rover.get_observation())
+        return tuple(obs)
+    
+    # Obtiene una lista con el estado de si los rovers han terminado
+    def _get_dones(self):
+        return [rover.done for rover in self.rovers] 
     
     def _assign_colors(self):
         colors = [(0,234,255),      # Cian
@@ -358,27 +387,34 @@ class LunarEnv(gym.Env):
     # Método para centralizar movimientos de los Rovers
     def step(self, actions):
 
+        rewards = []
+
         for rover, action in zip(self.rovers, actions):
             if rover.done:
                 pass
                 # print(f"Rover {rover.agent_id} ya terminado con recompensa {rover.reward}")
             else:
                 if action in rover.get_movements():
-                    rover.step(action)
+                    rover_step = rover.step(action)
+                    rewards.append(rover_step[1])
                     # print(f"Rover {rover.agent_id} realiza movimiento {action} con recompensa {rover.reward}")
                 else:
                     pass
                     # print(f"Rover {rover.agent_id} no realiza el movimiento por ser invalido")
-        obs = self.grid
-        reward = self._get_reward()
-        self.total_reward = reward
+
+        # Devuelve todas las observaciones, la reward total y si han acabado todos
+        obs = self._get_obs()
+        self.total_reward += sum(rewards)
         done = self._get_done()
-        info = {}
+        # Como los formatos del return son fijos, para devolver las listas de recompensas
+        # y acabados usaremos el dict info
+        info = {"dones":self._get_dones(),
+                "rewards":rewards}
 
         if self.render_mode == 'human':
             self.render()
 
-        return obs, reward, done, False, info
+        return obs, sum(rewards), done, False, info
 
     def render(self, mode='human'):
         if self.render_mode is None:

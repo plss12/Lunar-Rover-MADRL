@@ -66,11 +66,11 @@ class RoverInfoWindow(tk.Tk):
 
         for i, rover in enumerate(self.rovers):
             # Normalizamos la posición a coordenadas x,y reales
-            pos = (rover.position[1], self.env.grid_size - rover.position[0] - 1)
+            pos = (rover.position[1], self.env.unwrapped.grid_size - rover.position[0] - 1)
 
             rover_frame = self.rover_frames[i]
             rover_frame["name"].config(text=f"Rover {i+1} {pos}:")
-            rover_frame["reward"].config(text=f"  Reward: {rover.reward}")
+            rover_frame["reward"].config(text=f"  Reward: {rover.total_reward}")
             rover_frame["mined"].config(text=f"  Mined: {rover.mined}")
             rover_frame["done"].config(text=f"  Done: {rover.done}")
 
