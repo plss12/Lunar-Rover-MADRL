@@ -11,14 +11,14 @@ class RoverAction(Enum):
     LEFT = 3
     RIGHT = 4
 
-# Representación de los objetos en el mapa lunar
+# Representación de los objetos en el entorno lunar
 class LunarObjects(Enum):
     FLOOR = 0
     SMALL_OBSTACLE = 1
     BIG_OBSTACLE = 2
     BLENDER = 3
 
-# Representación de los Rovers y sus localizaciones asignadas
+# Representación de los Rovers y sus localizaciones asignadas en el entorno lunar
 class RoversObjects:
     def __init__(self, num_agents):
         self.num_agents = num_agents
@@ -44,6 +44,18 @@ class RoversObjects:
             agents_mines[self.objects[rover_name]] = self.objects[mine_name]
         
         return agents_mines
+
+# Estos son los valores que cada Rover verá en sus observaciones
+class RoverObsObjects(Enum):
+    OUT = -1
+    FLOOR = 0
+    SMALL_OBSTACLE = 1
+    BIG_OBSTACLE = 2
+    BLENDER = 3
+    ROVER = 4
+    MINE = 5
+    OTHER_ROVER = 6
+    OTHER_MINE = 7
 
 class Rover:
     def __init__(self, env, agent_id, mine_id, start_pos, mine_pos, blender_pos, vision_range):
@@ -75,6 +87,16 @@ class Rover:
             info = {}
             reward = 0
             return obs, reward, self.done, info
+        
+        # Si la acción no es valida, saca al Rover del mapa, y 
+        # devuelve una recompensa negativa
+        elif action not in self.get_movements():
+            obs = self.get_observation()
+            info = {}
+            reward = -10
+            self.total_reward += reward
+            self.env.total_reward += reward
+            return obs, reward, self.done, info
 
         x, y = self.position
         # Arriba
@@ -96,6 +118,7 @@ class Rover:
             # Penalización menor por gasto de energía en descanso
             reward = -0.5
             self.total_reward += reward
+            self.env.total_reward += reward
             obs = self.get_observation()
             info = {}
 
@@ -112,16 +135,19 @@ class Rover:
             if new_pos == 1:
                 reward = -3
                 self.total_reward += reward
+                self.env.total_reward += reward
             # Recompensa negativa por obstáculo grande (2)
             elif new_pos == 2:
                 reward = -8
                 self.total_reward += reward
+                self.env.total_reward += reward
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
             # dos agentes en una misma posición
             elif new_pos in self.env.rovers_mines_ids.keys():
                 reward = -10
                 self.total_reward += reward
+                self.env.total_reward += reward
                 obs = self.get_observation()
                 info = {}
                 
@@ -133,11 +159,13 @@ class Rover:
             elif new_pos == self.mine_id and self.mined == False: 
                 reward = 100
                 self.total_reward += reward
+                self.env.total_reward += reward
                 self.mined = True
             # Recompensa positiva si ha llegado al punto de recogida (3) tras minar
             elif new_pos == 3 and self.mined == True:
                 reward = 500
                 self.total_reward += reward
+                self.env.total_reward += reward
                 self.done = True
 
                 # Al terminar el Rover se debe borrar del mapa para que los demás
@@ -188,7 +216,7 @@ class Rover:
 
         # Se obtiene una matriz de -1 según el rango de visión
         obs_size = 2 * self.vision_range + 1
-        observation = -1 * np.ones((obs_size, obs_size), dtype=int)
+        observation = RoverObsObjects.OUT.value * np.ones((obs_size, obs_size), dtype=int)
 
         min_x = max(x - self.vision_range, 0)
         max_x = min(x + self.vision_range + 1, self.env.grid.shape[0])
@@ -210,9 +238,41 @@ class Rover:
                 self.mine_pos = tuple(np.argwhere(self.env.grid == self.mine_id)[0])
 
         elif self.blender_pos == None:
-            blender_position = np.argwhere(observation == LunarObjects.BLENDER.value)
+            blender_position = np.argwhere(observation == RoverObsObjects.BLENDER.value)
             if len(blender_position) > 0:
-                self.blender_pos = tuple(np.argwhere(self.env.grid == LunarObjects.BLENDER.value)[0])
+                self.blender_pos = tuple(np.argwhere(self.env.grid == RoverObsObjects.BLENDER.value)[0])
+
+        # Se realiza una normalización a la observación para que las observaciones de todos los Rovers
+        # tengan el mismo formato. Para un Rover todos los demás Rovers y minas son iguales sin distinción,
+        # solo debe distinguir entre el mismo y su mina asociada
+
+        # Normalizar el propio Rover
+        rover_pos = np.argwhere(observation == self.agent_id)
+        observation[tuple(rover_pos.T)] = RoverObsObjects.ROVER.value
+
+        # Normalizar la mina asociada al propio Rover si es visible
+        mine_position = np.argwhere(observation == self.mine_id)
+        if mine_position.size > 0:
+            observation[tuple(mine_position.T)] = RoverObsObjects.MINE.value
+
+        # Normalizar otros rovers visibles
+        all_rover_ids = list(self.env.rovers_mines_ids.keys())
+        all_rover_ids.remove(self.agent_id)
+        for rover_id in all_rover_ids:
+            other_rover_pos = np.argwhere(observation == rover_id)
+            if other_rover_pos.size > 0:
+                observation[tuple(other_rover_pos.T)] = RoverObsObjects.OTHER_ROVER.value
+
+        # Normalizar otras minas visibles
+        all_mine_ids = list(self.env.rovers_mines_ids.values())
+        all_mine_ids.remove(self.mine_id)
+        for mine_id in all_mine_ids:
+            other_mines_pos = np.argwhere(observation == mine_id)
+            if other_mines_pos.size > 0:
+                observation[tuple(other_mines_pos.T)] = RoverObsObjects.OTHER_MINE.value
+
+        if 4 not in observation:
+            print("Lio")
 
         return observation
 
@@ -259,7 +319,7 @@ class LunarEnv(gym.Env):
         self.render_mode = render_mode
 
         self.rovers_mines_ids = None
-        self.rovers = []
+        self.rovers = None
         self.blender_pos = None
         self.grid = None
         self.initial_grid = None
@@ -319,6 +379,7 @@ class LunarEnv(gym.Env):
         self.blender_pos = pos
     
     def _place_rovers_mines(self):
+        rovers = []
         for rover_id, mine_id in self.rovers_mines_ids.items():
             rover_pos = self._get_empty_position()
             self.grid[rover_pos] = rover_id
@@ -327,7 +388,8 @@ class LunarEnv(gym.Env):
             self.grid[mine_pos] = mine_id
 
             rover = Rover(self, rover_id, mine_id, rover_pos, mine_pos, self.blender_pos, self.vision_range)
-            self.rovers.append(rover)
+            rovers.append(rover)
+        self.rovers = rovers
 
     # Obtener una posición vacia, con la posibilidad de elegir unos límites en donde buscar
     def _get_empty_position(self, min_row=0, max_row=None, min_col=0, max_col=None):
@@ -404,7 +466,6 @@ class LunarEnv(gym.Env):
 
         # Devuelve todas las observaciones, la reward total y si han acabado todos
         obs = self._get_obs()
-        self.total_reward += sum(rewards)
         done = self._get_done()
         # Como los formatos del return son fijos, para devolver las listas de recompensas
         # y acabados usaremos el dict info

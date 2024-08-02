@@ -116,14 +116,14 @@ def prueba_individual(n_agents, grid_size, vision_range, screen_info):
     env.close()
     
 def main():
-    n_agents = 2
+    n_agents = 5
     grid_size = 15
     vision_range = 4
     info = True
 
-    # prueba_manual(n_agents, grid_size, vision_range, info)
+    prueba_manual(n_agents, grid_size, vision_range, info)
     # prueba_individual(n_agents, grid_size, vision_range, info)
-    prueba_conjunta(n_agents, grid_size, vision_range, info)
+    # prueba_conjunta(n_agents, grid_size, vision_range, info)
 
 if __name__ == "__main__":
     main()
