@@ -3,42 +3,35 @@ import random
 import gymnasium as gym
 import tensorflow as tf
 from tensorflow.keras.models import Model # type: ignore
-from tensorflow.keras.layers import Dense # type: ignore
+from tensorflow.keras.layers import Dense, Flatten, Conv2D, Input # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
 from gym_lunar_rover.envs.Lunar_Rover_env import *
 from collections import deque
 
-class DDDQN(Model):
-    def __init__(self, out_dim):
-        super(DDDQN, self).__init__()
+def dddqn_model(input_dim, output_dim):
+    # Capa de entrada
+    inputs = Input(shape=(input_dim, input_dim, 1))  
 
-        # Set common feature layer
-        self.feature_layer = tf.keras.Sequential([
-            Dense(128, activation='relu'),
-            Dense(128, activation='relu')
-        ])
+    # Capa común de características
+    x = Conv2D(32, (3, 3), activation='relu')(inputs)
+    x = Conv2D(64, (3, 3), activation='relu')(x)
+    x = Flatten()(x)
+    x = Dense(128, activation='relu')(x)
+    x = Dense(128, activation='relu')(x)
 
-        # Set advantage layer
-        self.advantage_layer = tf.keras.Sequential([
-            Dense(128, activation='relu'),
-            Dense(out_dim)
-        ])
+    # Capa de valor
+    value = Dense(128, activation='relu')(x)
+    value = Dense(1)(value)
 
-        # Set value layer
-        self.value_layer = tf.keras.Sequential([
-            Dense(128, activation='relu'),
-            Dense(1)
-        ])
+    # Capa de ventaja
+    advantage = Dense(128, activation='relu')(x)
+    advantage = Dense(output_dim)(advantage)
 
-    def call(self, x):
-        feature = self.feature_layer(x)
-            
-        value = self.value_layer(feature)
-        advantage = self.advantage_layer(feature)
+    # Cálculo de Q
+    q = value + advantage - tf.reduce_mean(advantage, axis=-1, keepdims=True)
 
-        q = value + advantage - tf.reduce_mean(advantage, axis=-1, keepdims=True)
-        
-        return q
+    model = Model(inputs=inputs, outputs=q)
+    return model
     
 class ExperienceReplayBuffer():
     def __init__(self, buffer_size, batch_size,):
@@ -67,42 +60,47 @@ class ExperienceReplayBuffer():
         return len(self.buffer)
 
 class DoubleDuelingDQNAgent:
-    def __init__(self, action_dim, buffer_size, batch_size, gamma, lr, update_target_freq):
+    def __init__(self, input_shape, action_dim, buffer_size, batch_size, gamma, lr, update_target_freq, model_path=None):
         self.action_dim = action_dim
         self.gamma = gamma
         self.batch_size = batch_size
         self.buffer_size = buffer_size
         self.update_target_freq = update_target_freq
 
-        self.epsilon = 0
+        self.epsilon = 1
         self.min_epsilon = 0.01
-        self.epsilon_decay = 1e-3
+        self.epsilon_decay = 1e-4
         
-        # Primary and Target Networks
-        self.primary_network = DDDQN(action_dim)
-        self.target_network = DDDQN(action_dim)
-        # self.target_network.set_weights(self.primary_network.get_weights())
+        self.primary_network = dddqn_model(input_shape, action_dim)
+        self.target_network = dddqn_model(input_shape, action_dim)
 
-        # Optimizer
         self.optimizer = Adam(learning_rate=lr)
-
         self.primary_network.compile(loss='mse', optimizer=self.optimizer)
         self.target_network.compile(loss='mse', optimizer=self.optimizer)
 
+        # Si hay pesos guardados se cargan
+        if model_path:
+            self.load_model(model_path)
+
+        # Si no hay pesos para cargar, se igualan los pesos iniciales de las redes
+        else:
+            self.update_target_network()
         
         # Experience Replay Buffer
         self.replay_buffer = ExperienceReplayBuffer(buffer_size, batch_size)
         
-        # Update counter
+        # Contador de actualizaciones
         self.update_counter = 0
     
     def act(self, state, available_actions):
         if np.random.rand() < self.epsilon:
             # Devolver una acción posible aleatoria
-            return np.random.choice(available_actions, size=1)
+            return np.int64(np.random.choice(available_actions))
         else:
             # Calculamos los valores de las acciones y devolvemos la mejor
-            q_values = self.primary_network(np.expand_dims(state, axis=0))
+            state = np.expand_dims(state, axis=0)
+            state = np.expand_dims(state, axis=-1)
+            q_values = self.primary_network(state)
             best_act = np.argmax(q_values[0].numpy())
             return best_act
     
@@ -110,10 +108,11 @@ class DoubleDuelingDQNAgent:
         self.replay_buffer.add_exp(state, action, reward, next_state, done)
 
     def update_target_network(self):
-        # Hard update of the target network
+        # Hard update a la target network con los pesos de la primary network
         self.target_network.set_weights(self.primary_network.get_weights())
 
     def update_epsilon(self):
+        # Disminuimos el epsilon según el epsilon decay y viendo que no baje del mínimo
         self.epsilon = self.epsilon - self.epsilon_decay if self.epsilon > self.min_epsilon else self.min_epsilon
         return self.epsilon
     
@@ -122,20 +121,20 @@ class DoubleDuelingDQNAgent:
 
     def load_model(self, file_path):
         self.primary_network.load_weights(file_path)
-        self.target_network.set_weights(self.model.get_weights())
+        self.target_network.set_weights(self.primary_network.get_weights())
 
     def train(self):
-        if len(self.replay_buffer) < self.batch_size:
-            return 
-        
-        states, actions, rewards, next_states, dones = self.replay_buffer.sample_exp()
 
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample_exp()
+        
         # Convertir arrays a tensores
         states = tf.convert_to_tensor(states, dtype=tf.float32)
+        states = tf.expand_dims(states, axis=-1)
         actions = tf.convert_to_tensor(actions, dtype=tf.int32)
         rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
         next_states = tf.convert_to_tensor(next_states, dtype=tf.float32)
-        dones = tf.convert_to_tensor(dones, dtype=tf.int32)
+        next_states = tf.expand_dims(next_states, axis=-1)
+        dones = tf.convert_to_tensor(dones, dtype=tf.float32)
 
         # Obtener Q-values del modelo principal para el estado actual y el siguiente estado
         with tf.GradientTape() as tape:
@@ -161,51 +160,46 @@ class DoubleDuelingDQNAgent:
         if self.update_counter % self.update_target_freq == 0:
             self.update_target_network()
 
+        # Actualizamos el valor de epsilon
         self.update_epsilon()
 
 if __name__ == '__main__':
 
-    n_agents = 5
-    grid_size = 15
+    n_agents = 4
+    grid_size = 10
     vision_range = 4
+    input_shape = vision_range*2+1
 
-    env = gym.make('lunar-rover-v0', render_mode='train', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range)
+    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range)
     action_dim = env.action_space.nvec[0]
 
-    # Hyperparameters
+    # Hiperparámetros
     buffer_size = 10000
     batch_size = 64
     gamma = 0.99
     lr = 0.001
     update_target_freq = 500
 
-    # Initialize agent
-    agent = DoubleDuelingDQNAgent(action_dim, buffer_size, batch_size, gamma, lr, update_target_freq)
+    agent = DoubleDuelingDQNAgent(input_shape, action_dim, buffer_size, batch_size, gamma, lr, update_target_freq)
 
-    # Example training loop
-    num_episodes = 500
+    num_episodes = 10
 
     for episode in range(num_episodes):
         states = env.reset()[0]
         dones = [False]*n_agents
-
+        iteration = 0
         while not all(dones):
+            iteration +=1
+            print(f"Iteración de entrenamiento número {iteration}")
             for i, rover in enumerate(env.unwrapped.rovers):
+                # Si el Rover ha terminado saltamos al siguiente
+                if rover.done:
+                    continue
                 available_actions = rover.get_movements()
                 state = states[i]
                 action = agent.act(state, available_actions)
-                # Si la recompensa calculada es invalida se devuelve una recompensa 
-                # negativa y se mantiene al rover en la misma posición
-                if action not in available_actions:
-                    action = 0
-                    step_act = rover.step(action)
-                    next_state, reward, done = step_act[0:3]
-                    reward += -10
-
-                else:
-                    step_act = rover.step(action)
-                    next_state, reward, done = step_act[0:3]
-
+                step_act = rover.step(action)
+                next_state, reward, done = step_act[0:3]
                 dones[i]=done
                 agent.add_experience(state, action, reward, next_state, done)
                 agent.train()
