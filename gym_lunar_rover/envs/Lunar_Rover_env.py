@@ -58,7 +58,7 @@ class RoverObsObjects(Enum):
     OTHER_MINE = 7
 
 class Rover:
-    def __init__(self, env, agent_id, mine_id, start_pos, vision_range, mine_pos=None, blender_pos=None):
+    def __init__(self, env, agent_id, mine_id, start_pos, vision_range, mine_pos=(-1,-1), blender_pos=(-1,-1)):
         self.env = env
         self.agent_id = agent_id
         self.mine_id = mine_id
@@ -109,7 +109,6 @@ class Rover:
         # Descanso, y terminamos el proceso al no necesitar
         # comprobaciones extras por no haber movimiento
         elif action == 0:
-            new_x, new_y = x, y
             # Penalización menor por gasto de energía en descanso
             reward += -0.5
             self.total_reward += reward
@@ -125,20 +124,20 @@ class Rover:
         new_pos = self.env.grid[new_x, new_y]
 
         # Comprobamos si la nueva posición está o no vacia para aplicar las recompensas
-        if new_pos !=0:
+        if new_pos != 0:
             # Recompensa negativa por obstáculo pequeño
             if new_pos == LunarObjects.SMALL_OBSTACLE.value:
-                reward += -3
+                reward += -5
 
             # Recompensa negativa por obstáculo grande
             elif new_pos == LunarObjects.BIG_OBSTACLE.value:
-                reward += -8
+                reward += -10
 
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
             # dos agentes en una misma posición
             elif new_pos in self.env.rovers_mines_ids.keys():
-                reward += -10
+                reward += -20
                 self.total_reward += reward
                 self.env.total_reward += reward
                 obs, obs_rew = self.get_observation()
@@ -159,7 +158,12 @@ class Rover:
 
                 # Al terminar el Rover se debe borrar del mapa para que los demás
                 # Rovers puedan entrar en el Blender sin que esté ocupada la posición
-                self.env.grid[x, y] = self.env.initial_grid[x, y]
+                if (self.env.initial_grid[x, y] in self.env.rovers_mines_ids.keys()):
+                    self.env.grid[x, y] = LunarObjects.FLOOR.value      
+
+                else:
+                    self.env.grid[x, y] = self.env.initial_grid[x, y]
+
                 self.position = (new_x, new_y)
                 
                 obs, obs_rew = self.get_observation()
@@ -234,13 +238,13 @@ class Rover:
         observation[start_x:end_x, start_y:end_y] = self.env.grid[min_x:max_x, min_y:max_y]
 
         # Si la información de la mina y la meta se obtienen con observación se añade aquí
-        if self.mine_pos == None:
+        if self.mine_pos == (-1,-1):
             mine_position = np.argwhere(observation == self.mine_id)
             if len(mine_position) > 0:
                 self.mine_pos = tuple(np.argwhere(self.env.grid == self.mine_id)[0])
                 reward += 50
 
-        if self.blender_pos == None:
+        if self.blender_pos == (-1,-1):
             blender_position = np.argwhere(observation == RoverObsObjects.BLENDER.value)
             if len(blender_position) > 0:
                 self.blender_pos = tuple(np.argwhere(self.env.grid == RoverObsObjects.BLENDER.value)[0])
@@ -426,8 +430,8 @@ class LunarEnv(gym.Env):
         for rover in self.rovers:
             obs.append(rover.get_observation()[0])
             if not update_pos:
-                rover.mine_pos = None
-                rover.blender_pos = None
+                rover.mine_pos = (-1,-1)
+                rover.blender_pos = (-1,-1)
         return tuple(obs)
     
     # Obtiene una lista con el estado de si los rovers han terminado
