@@ -16,6 +16,10 @@ class RoverInfoWindow(tk.Tk):
         main_frame = tk.Frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Añadir label para la recompensa total del entorno
+        self.total_reward_label = tk.Label(main_frame, font=("Helvetica", 14, "bold"))
+        self.total_reward_label.pack(side=tk.TOP, pady=10)
+
         # Crear el canvas y el scrollbar
         self.canvas = tk.Canvas(main_frame)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -43,16 +47,24 @@ class RoverInfoWindow(tk.Tk):
             
             position_label = tk.Label(rover_frame, font=("Helvetica", 12))
 
+            mine_pos_label = tk.Label(rover_frame, font=("Helvetica", 12))
+            mine_pos_label.grid(row=2, column=0, sticky="w")
+
+            blender_pos_label = tk.Label(rover_frame, font=("Helvetica", 12))
+            blender_pos_label.grid(row=3, column=0, sticky="w")
+            
             mined_label = tk.Label(rover_frame, font=("Helvetica", 12))
-            mined_label.grid(row=2, column=0, sticky="w")
+            mined_label.grid(row=4, column=0, sticky="w")
 
             done_label = tk.Label(rover_frame, font=("Helvetica", 12))
-            done_label.grid(row=3, column=0, sticky="w")
+            done_label.grid(row=5, column=0, sticky="w")
             
             self.rover_frames.append({
                 "frame": rover_frame,
                 "name": name_label,
                 "reward": reward_label,
+                "mine_pos":mine_pos_label,
+                "blender_pos":blender_pos_label,
                 "position": position_label,
                 "done": done_label,
                 "mined": mined_label
@@ -64,6 +76,9 @@ class RoverInfoWindow(tk.Tk):
 
     def update_info(self):
 
+        total_reward = self.env.unwrapped.total_reward
+        self.total_reward_label.config(text=f"Total Environment Reward: {total_reward}")
+
         for i, rover in enumerate(self.rovers):
             # Normalizamos la posición a coordenadas x,y reales
             pos = (rover.position[1], self.env.unwrapped.grid_size - rover.position[0] - 1)
@@ -71,6 +86,8 @@ class RoverInfoWindow(tk.Tk):
             rover_frame = self.rover_frames[i]
             rover_frame["name"].config(text=f"Rover {i+1} {pos}:")
             rover_frame["reward"].config(text=f"  Reward: {rover.total_reward}")
+            rover_frame["mine_pos"].config(text=f"  Mine Position: {rover.mine_pos}")
+            rover_frame["blender_pos"].config(text=f"  Blender Position: {rover.blender_pos}")
             rover_frame["mined"].config(text=f"  Mined: {rover.mined}")
             rover_frame["done"].config(text=f"  Done: {rover.done}")
 
