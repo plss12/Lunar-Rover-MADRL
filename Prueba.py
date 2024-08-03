@@ -116,9 +116,9 @@ def prueba_individual(n_agents, grid_size, vision_range, screen_info):
     env.close()
     
 def main():
-    n_agents = 5
-    grid_size = 15
-    vision_range = 4
+    n_agents = 2
+    grid_size = 10
+    vision_range = 5
     info = True
 
     prueba_manual(n_agents, grid_size, vision_range, info)
