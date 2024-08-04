@@ -208,6 +208,8 @@ class DoubleDuelingDQNAgent:
         # Actualizamos el valor de epsilon
         self.update_epsilon()
     
+        return round(loss.numpy(), 4)
+    
     def save_train(self, model_path, buffer_path, state_path):
         self.save_model(model_path)
         self.save_buffer(buffer_path)

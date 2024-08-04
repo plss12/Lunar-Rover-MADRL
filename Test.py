@@ -46,11 +46,12 @@ def test_ppo(steps):
     pass
 
 def main():
-    # Número de steps del modelo que queremos testear y 
+    # Número de steps del modelo que queremos testear y si los rovers 
+    # incluyen o no la posición de la mina y la mezcladora desde un inicio
     model_steps = 10
     initial_know_pos = True
 
     test_dddql(model_steps,initial_know_pos)
-
+    
 if __name__ == "__main__":
     main()
