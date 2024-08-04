@@ -1,5 +1,6 @@
 import gymnasium as gym
 import os
+import csv
 from gym_lunar_rover.envs.DDDQL import DoubleDuelingDQNAgent, InferenceDDDQNAgent
 from gym_lunar_rover.envs.Test_env import TestEnv
 
@@ -10,6 +11,23 @@ def generate_filename(algorithm, base_name, steps, extension):
 # Función para comprobar si existe un archivo
 def check_file_exists(filename):
     return os.path.exists(filename)
+
+# Función para escribir en un csv la evolución de las métricas del entrenamiento
+def csv_save_train(algorithm, initial_steps, total_steps, total_reward, average_reward, average_loss):
+    file_path = 'training_metrics.csv'
+    fieldnames = ['algorithm', 'initial_steps', 'total_steps', 'total_reward', 'average_reward', 'average_loss']
+    
+    if not os.path.isfile(file_path):
+        # Inicializar archivo CSV si no existe para guardar métricas
+        with open('training_metrics.csv', mode='w', newline='') as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+
+    # Si ya existe el archivo solo se escribe una nueva fila para no sobrescribir nada
+    with open(file_path, mode='a', newline='') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'total_steps': total_steps, 'total_reward': total_reward, 'average_reward': average_reward,'average_loss': average_loss})
+
 
 def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=None):
 
@@ -36,15 +54,21 @@ def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=
     max_iterations = 1000
     global_steps = 0
 
+    total_rewards = []
+    averages_rewards = []
+    averages_losses = []
+
     while global_steps < total_steps:
         observations = list(env.reset()[0])
         dones = [False]*n_agents
         iteration = 0
+        rewards = []
+        losses = []
+
         # Comprobamos que haya Rovers sin terminar y se limita el número de iteraciones
         # para no sobreentrenar situaciones inusuales
         while not all(dones) and iteration < max_iterations:
             iteration +=1
-            print(f'Iteración de entrenamiento número {iteration}')
             for i, rover in enumerate(env.unwrapped.rovers):
                 # Si el Rover ha terminado saltamos al siguiente
                 if rover.done:
@@ -59,10 +83,13 @@ def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=
                 next_observation, reward, done = step_act[0:3]
                 next_info = rover.position + rover.mine_pos + rover.blender_pos + (int(rover.mined),)
                 agent.add_experience(observation, info, action, reward, next_observation, next_info, done)
-                agent.train()
+                loss = agent.train()
 
                 observations[i] = next_observation
                 dones[i] = done
+
+                rewards.append(reward)
+                losses.append(loss)
 
                 global_steps +=1
 
@@ -72,14 +99,31 @@ def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=
             if global_steps >= total_steps:
                 break
 
-        print(f'Episodio acabado con una recompensa total de {env.unwrapped.total_reward}')
+        total_reward = sum(rewards)
+        average_reward = round(sum(rewards) / len(rewards),2)
+        average_loss = round(sum(losses) / len(losses),4)
+        
+        total_rewards.append(total_reward)
+        averages_rewards.append(average_reward)
+        averages_losses.append(average_loss)
+
+        print(f'Episodio acabado con una recompensa total de {total_reward}, una recompensa',
+              f'promedio de {average_reward} y una pérdida promedio de {average_loss}')
 
     model_filename = generate_filename('DDDQL', 'model_weights', agent.update_counter, 'h5')
     buffer_filename = generate_filename('DDDQL', 'replay_buffer', agent.update_counter, 'pkl')
     parameters_filename = generate_filename('DDDQL', 'training_state', agent.update_counter, 'pkl')
 
     agent.save_train(model_filename, buffer_filename, parameters_filename)
-    print(f'Entrenamiento guardado tras {global_steps} steps')
+
+    total_reward = sum(total_rewards)
+    average_reward = round(sum(averages_rewards) / len(averages_rewards),2)
+    average_loss = round(sum(averages_losses) / len(averages_losses),4)
+
+    print(f'Entrenamiento guardado tras {global_steps} steps con una recompensa',
+          f'y loss promedio por episodio de {average_reward} y {average_loss}')
+
+    return total_reward, average_reward, average_loss
 
 def train_ppo():
     pass
@@ -99,7 +143,7 @@ def train_by_steps(steps_befor_save, initial_steps, total_train_steps, algorithm
             while total_steps < total_train_steps:
                 # Si no hay un modelo previo que entrenar se empieza desde 0
                 if first_train:
-                    train_dddql(steps_befor_save)
+                    total_reward, average_reward, average_loss = train_dddql(steps_befor_save)
                     first_train = False
                 # Si hay un modelo previo se carga y se entrena desde ese punto
                 else:
@@ -113,7 +157,10 @@ def train_by_steps(steps_befor_save, initial_steps, total_train_steps, algorithm
                         return
 
                     # Si todos sus ficheros existen se realiza el entrenamiento desde el modelo dado
-                    train_dddql(steps_befor_save, model_filename, buffer_filename, parameters_filename)
+                    total_reward, average_reward, average_loss = train_dddql(steps_befor_save, model_filename, buffer_filename, parameters_filename)
+
+                # Guardamos los datos de como ha ido el entrenamiento para ir viendo su evolución
+                csv_save_train(algorithm, initial_steps, total_steps, total_reward, average_reward, average_loss)
 
                 # Sumamos los steps realizados al total y a los iniciales para llevar el recuento
                 # de steps totales entrenados en esta llamada y los totales entrenados por el modelo
