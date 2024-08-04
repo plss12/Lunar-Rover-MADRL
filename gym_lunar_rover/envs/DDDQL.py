@@ -1,12 +1,12 @@
 import numpy as np
 import random
-import gymnasium as gym
+from gym_lunar_rover.envs.Lunar_Rover_env import *
+from collections import deque
+import pickle
 import tensorflow as tf
 from tensorflow.keras.models import Model # type: ignore
 from tensorflow.keras.layers import Dense, Flatten, Conv2D, Input, Concatenate # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
-from gym_lunar_rover.envs.Lunar_Rover_env import *
-from collections import deque
 
 def dddqn_model(observation_dim, info_dim, output_dim):
     # Capa de entrada para la matriz de observación
@@ -45,7 +45,7 @@ def dddqn_model(observation_dim, info_dim, output_dim):
 
     model = Model(inputs=[obs_input, info_input], outputs=q)
     return model
-    
+
 class ExperienceReplayBuffer():
     def __init__(self, buffer_size, batch_size,):
         self.buffer_size = buffer_size
@@ -62,32 +62,34 @@ class ExperienceReplayBuffer():
 
         batch = random.sample(self.buffer, batch_size)
         observations, infos, actions, rewards, next_observations, next_infos, dones = zip(*batch)
-        observations = np.array(observations)
-        infos = np.array(infos)
-        actions = np.array(actions)
-        rewards = np.array(rewards)
-        next_observations = np.array(next_observations)
-        next_infos = np.array(next_infos)
-        dones = np.array(dones)
-        return observations, infos, actions, rewards, next_observations, next_infos, dones
-
+        return (np.array(observations), np.array(infos), np.array(actions), np.array(rewards), 
+                np.array(next_observations), np.array(next_infos), np.array(dones))
+    
     def __len__(self):
         return len(self.buffer)
 
+# Agente para el entrenamiento  
 class DoubleDuelingDQNAgent:
-    def __init__(self, obs_shape, info_shape, action_dim, buffer_size, batch_size, gamma, lr, update_target_freq, model_path=None):
+    def __init__(self, observation_shape, info_shape, action_dim, buffer_size, batch_size, gamma, lr, update_target_freq, model_path=None, buffer_path=None, parameters_path=None):
         self.action_dim = action_dim
         self.gamma = gamma
         self.batch_size = batch_size
         self.buffer_size = buffer_size
-        self.update_target_freq = update_target_freq
 
+        # Parámetros de epsilon para el balance entre exploración/explotación
         self.epsilon = 1
         self.min_epsilon = 0.01
         self.epsilon_decay = 1e-4
-        
-        self.primary_network = dddqn_model(obs_shape, info_shape, action_dim)
-        self.target_network = dddqn_model(obs_shape, info_shape, action_dim)
+        # Contador de actualizaciones
+        self.update_counter = 0
+        self.update_target_freq = update_target_freq
+
+        # Cargamos los parámetros si existe un entrenamiento previo
+        if parameters_path:
+            self.load_parameters(parameters_path)
+
+        self.primary_network = dddqn_model(observation_shape, info_shape, action_dim)
+        self.target_network = dddqn_model(observation_shape, info_shape, action_dim)
 
         self.optimizer = Adam(learning_rate=lr)
         self.primary_network.compile(loss='mse', optimizer=self.optimizer)
@@ -101,25 +103,24 @@ class DoubleDuelingDQNAgent:
         else:
             self.update_target_network()
         
-        # Experience Replay Buffer
+        # Iniciamos el Experience Replay Buffer o cargamos el del entrenamiento previo
         self.replay_buffer = ExperienceReplayBuffer(buffer_size, batch_size)
+
+        if buffer_path:
+            self.load_buffer(buffer_path)
         
-        # Contador de actualizaciones
-        self.update_counter = 0
     
     def act(self, observation, info, available_actions):
         if np.random.rand() < self.epsilon:
             # Devolver una acción posible aleatoria
             return np.int64(np.random.choice(available_actions))
         else:
-            # Ajustamos las dimensiones de la observación
+            # Ajustamos las dimensiones de la observación y la info
             observation = np.expand_dims(observation, axis=0)
             observation = np.expand_dims(observation, axis=-1)
-
-            # Ajustamos las dimensiones de la info
             info = np.expand_dims(info, axis=0)
 
-            # Calculamos los valores de las acciones y devolvemos la mejor
+            # Predecimos los Q-values y cogemos la acción con el mayor
             q_values = self.primary_network([observation, info])
             best_act = np.argmax(q_values[0].numpy())
             return best_act
@@ -142,6 +143,28 @@ class DoubleDuelingDQNAgent:
     def load_model(self, file_path):
         self.primary_network.load_weights(file_path)
         self.target_network.set_weights(self.primary_network.get_weights())
+
+    def save_buffer(self, file_path):
+        with open(file_path, 'wb') as f:
+            pickle.dump(self.replay_buffer.buffer, f)
+
+    def load_buffer(self, file_path):
+        with open(file_path, 'rb') as f:
+            self.replay_buffer.buffer = pickle.load(f)
+
+    def save_parameters(self, file_path):
+        state = {
+            'epsilon': self.epsilon,
+            'update_counter': self.update_counter
+        }
+        with open(file_path, 'wb') as f:
+            pickle.dump(state, f)
+    
+    def load_parameters(self, file_path):
+        with open(file_path, 'rb') as f:
+            state = pickle.load(f)
+        self.epsilon = state['epsilon']
+        self.update_counter = state['update_counter']
 
     def train(self):
 
@@ -184,56 +207,27 @@ class DoubleDuelingDQNAgent:
 
         # Actualizamos el valor de epsilon
         self.update_epsilon()
+    
+    def save_train(self, model_path, buffer_path, state_path):
+        self.save_model(model_path)
+        self.save_buffer(buffer_path)
+        self.save_parameters(state_path)
 
-if __name__ == '__main__':
+# Agente para la inferencia tras finalizar el entrenamiento
+class InferenceDDDQNAgent:
+    def __init__(self, observation_shape, info_shape, action_dim, model_path):
+        self.action_dim = action_dim
+        self.primary_network = dddqn_model(observation_shape, info_shape, action_dim)
+        self.primary_network.compile(loss='mse', optimizer='adam')
+        self.primary_network.load_weights(model_path)
 
-    n_agents = 4
-    grid_size = 10
-    vision_range = 3
-    observation_shape = vision_range*2+1
-    info_shape = 7
-
-    env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range)
-    action_dim = env.action_space.nvec[0]
-
-    # Hiperparámetros
-    buffer_size = 100000
-    batch_size = 64
-    gamma = 0.99
-    lr = 1e-4
-    update_target_freq = 1000
-
-    agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, gamma, lr, update_target_freq)
-
-    num_episodes = 10
-    max_iterations = 1000
-
-    for episode in range(num_episodes):
-        observations = list(env.reset()[0])
-        dones = [False]*n_agents
-        iteration = 0
-        while not all(dones) and iteration < max_iterations:
-            iteration +=1
-            print(f"Iteración de entrenamiento número {iteration}")
-            for i, rover in enumerate(env.unwrapped.rovers):
-                # Si el Rover ha terminado saltamos al siguiente
-                if rover.done:
-                    continue
-                available_actions = rover.get_movements()
-                observation = observations[i]
-                info = rover.position + rover.mine_pos + rover.blender_pos + (int(rover.mined),)
-
-                action = agent.act(observation, info, available_actions)
-                step_act = rover.step(action)
-
-                next_observation, reward, done = step_act[0:3]
-                next_info = rover.position + rover.mine_pos + rover.blender_pos + (int(rover.mined),)
-                agent.add_experience(observation, info, action, reward, next_observation, next_info, done)
-                agent.train()
-
-                observations[i] = next_observation
-                dones[i] = done
-
-
-
-        print(f'Episode {episode + 1}/{num_episodes} finished with a total reward of {env.unwrapped.total_reward}')
+    def act(self, observation, info):
+        # Ajustamos las dimensiones de la observación y la info
+        observation = np.expand_dims(observation, axis=0)
+        observation = np.expand_dims(observation, axis=-1)
+        info = np.expand_dims(info, axis=0)
+        
+        # Predecimos los Q-values y cogemos la acción con el mayor
+        q_values = self.primary_network([observation, info])
+        best_action = np.argmax(q_values[0].numpy())
+        return best_action
