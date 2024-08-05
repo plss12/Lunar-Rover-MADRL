@@ -1,38 +1,13 @@
 import gymnasium as gym
-import os
-import csv
-from gym_lunar_rover.envs.DDDQL import DoubleDuelingDQNAgent, InferenceDDDQNAgent
-
-# Función para generar un nombre de archivo único
-def generate_filename(algorithm, base_name, steps, extension):
-    return f"saved_trains/{algorithm}/{base_name}_steps_{steps}.{extension}"
-
-# Función para comprobar si existe un archivo
-def check_file_exists(filename):
-    return os.path.exists(filename)
-
-# Función para escribir en un csv la evolución de las métricas del entrenamiento
-def csv_save_train(algorithm, initial_steps, count_steps, total_reward, average_reward, average_loss):
-    file_path = 'training_metrics.csv'
-    fieldnames = ['algorithm', 'initial_steps', 'count_steps', 'total_reward', 'average_reward', 'average_loss']
-    
-    if not os.path.isfile(file_path):
-        # Inicializar archivo CSV si no existe para guardar métricas
-        with open('training_metrics.csv', mode='w', newline='') as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-            writer.writeheader()
-
-    # Si ya existe el archivo solo se escribe una nueva fila para no sobrescribir nada
-    with open(file_path, mode='a', newline='') as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'count_steps': count_steps, 'total_reward': total_reward, 'average_reward': average_reward,'average_loss': average_loss})
-
+import numpy as np
+from gym_lunar_rover.envs.DDDQL import DoubleDuelingDQNAgent
+from gym_lunar_rover.envs.Utils import generate_filename, check_file_exists, csv_save_train, normalize_pos, normalize_obs
 
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Parámetros para la creación del entorno
     n_agents = 4
-    grid_size = 15
+    grid_size = 12
     vision_range = 3
     know_pos = False
     observation_shape = vision_range*2+1
@@ -47,8 +22,8 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     gamma = 0.9
     lr = 1e-5
     epsilon = 1
-    min_epsilon = 0.01
-    epsilon_decay = 1e-4
+    min_epsilon = 0.1
+    epsilon_decay = 1e-5
     update_target_freq = 1000
     warm_up_steps = 100
     clip_rewards = False
@@ -79,14 +54,22 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                     continue
                 available_actions = rover.get_movements()
                 observation = observations[i]
-                info = rover.position + rover.mine_pos + rover.blender_pos + (int(rover.mined),)
+                # Normalizamos la observación en el rango 0-1
+                norm_observation = normalize_obs(observation)
+                # Normalizamos las posiciones en el rango 0-1
+                info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
+                info = np.append(info, int(rover.mined))
 
-                action = agent.act(observation, info, available_actions)
+                action = agent.act(norm_observation, info, available_actions)
                 step_act = rover.step(action)
 
                 next_observation, reward, done = step_act[0:3]
-                next_info = rover.position + rover.mine_pos + rover.blender_pos + (int(rover.mined),)
-                agent.add_experience(observation, info, action, reward, next_observation, next_info, done)
+                # Normalizamos la observación en el rango 0-1
+                norm_next_observation = normalize_obs(next_observation)
+                # Normalizamos las posiciones en el rango 0-1
+                next_info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
+                next_info = np.append(next_info, int(rover.mined))
+                agent.add_experience(norm_observation, info, action, reward, norm_next_observation, next_info, done)
                 loss = agent.train()
 
                 observations[i] = next_observation

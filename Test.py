@@ -1,21 +1,19 @@
+import numpy as np
 from gym_lunar_rover.envs.DDDQL import InferenceDDDQNAgent
 from gym_lunar_rover.envs.Test_env import TestEnv
-
-# Función para generar un nombre de archivo único
-def generate_filename(algorithm, base_name, steps, extension):
-    return f"saved_trains/{algorithm}/{base_name}_steps_{steps}.{extension}"
+from gym_lunar_rover.envs.Utils import generate_filename, normalize_obs, normalize_pos
 
 def test_dddql(steps, know_pos):
     # Parámetros para la creación del entorno
     n_agents = 4
-    grid_size = 15
+    grid_size = 12
     vision_range = 3
     observation_shape = vision_range*2+1
     info_shape = 7
 
-    test_env = TestEnv(n_agents, grid_size, vision_range, know_pos=know_pos, render_mode='human')
+    test_env = TestEnv(n_agents, grid_size, vision_range, know_pos=know_pos, render_mode='human', seed = 1)
     action_dim = test_env.action_space.nvec[0]
-    
+
     model_filename = generate_filename('DDDQL','model_weights', steps, 'h5')
     agent = InferenceDDDQNAgent(observation_shape, info_shape, action_dim, model_filename)
 
@@ -33,7 +31,11 @@ def test_dddql(steps, know_pos):
                 if rover.done:
                     continue
                 observation = observations[i]
-                info = rover.position + rover.mine_pos + rover.blender_pos + (int(rover.mined),)
+                # Normalizamos la observación en el rango 0-1
+                observation = normalize_obs(observation)
+                # Normalizamos las posiciones en el rango 0-1
+                info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
+                info = np.append(info, int(rover.mined))
 
                 action = agent.act(observation, info)
                 step_act = rover.step(action)
@@ -48,7 +50,7 @@ def test_ppo(steps):
 def main():
     # Número de steps del modelo que queremos testear y si los rovers 
     # incluyen o no la posición de la mina y la mezcladora desde un inicio
-    model_steps = 10
+    model_steps = 0
     initial_know_pos = True
 
     test_dddql(model_steps,initial_know_pos)
