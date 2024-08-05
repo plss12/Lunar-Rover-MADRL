@@ -2,7 +2,6 @@ import gymnasium as gym
 import os
 import csv
 from gym_lunar_rover.envs.DDDQL import DoubleDuelingDQNAgent, InferenceDDDQNAgent
-from gym_lunar_rover.envs.Test_env import TestEnv
 
 # Función para generar un nombre de archivo único
 def generate_filename(algorithm, base_name, steps, extension):
@@ -13,9 +12,9 @@ def check_file_exists(filename):
     return os.path.exists(filename)
 
 # Función para escribir en un csv la evolución de las métricas del entrenamiento
-def csv_save_train(algorithm, initial_steps, total_steps, total_reward, average_reward, average_loss):
+def csv_save_train(algorithm, initial_steps, count_steps, total_reward, average_reward, average_loss):
     file_path = 'training_metrics.csv'
-    fieldnames = ['algorithm', 'initial_steps', 'total_steps', 'total_reward', 'average_reward', 'average_loss']
+    fieldnames = ['algorithm', 'initial_steps', 'count_steps', 'total_reward', 'average_reward', 'average_loss']
     
     if not os.path.isfile(file_path):
         # Inicializar archivo CSV si no existe para guardar métricas
@@ -26,10 +25,10 @@ def csv_save_train(algorithm, initial_steps, total_steps, total_reward, average_
     # Si ya existe el archivo solo se escribe una nueva fila para no sobrescribir nada
     with open(file_path, mode='a', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'total_steps': total_steps, 'total_reward': total_reward, 'average_reward': average_reward,'average_loss': average_loss})
+        writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'count_steps': count_steps, 'total_reward': total_reward, 'average_reward': average_reward,'average_loss': average_loss})
 
 
-def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=None):
+def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Parámetros para la creación del entorno
     n_agents = 4
@@ -45,20 +44,25 @@ def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=
     # Hiperparámetros
     buffer_size = 100000
     batch_size = 64
-    gamma = 0.99
-    lr = 1e-4
+    gamma = 0.9
+    lr = 1e-5
+    epsilon = 1
+    min_epsilon = 0.01
+    epsilon_decay = 1e-4
     update_target_freq = 1000
+    warm_up_steps = 100
+    clip_rewards = False
 
-    agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, gamma, lr, update_target_freq, model_path, buffer_path, parameters_path)
+    agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards, epsilon, min_epsilon, epsilon_decay, gamma, lr, update_target_freq, model_path, buffer_path, parameters_path)
 
-    max_iterations = 1000
-    global_steps = 0
+    max_iterations = 10000
+    count_steps = 0
 
     total_rewards = []
     averages_rewards = []
     averages_losses = []
 
-    while global_steps < total_steps:
+    while count_steps < total_steps:
         observations = list(env.reset()[0])
         dones = [False]*n_agents
         iteration = 0
@@ -89,19 +93,20 @@ def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=
                 dones[i] = done
 
                 rewards.append(reward)
-                losses.append(loss)
+                if loss:
+                    losses.append(loss)
 
-                global_steps +=1
+                count_steps +=1
 
-                if global_steps >= total_steps:
+                if count_steps >= total_steps:
                     break
 
-            if global_steps >= total_steps:
+            if count_steps >= total_steps:
                 break
 
         total_reward = sum(rewards)
         average_reward = round(sum(rewards) / len(rewards),2)
-        average_loss = round(sum(losses) / len(losses),4)
+        average_loss = round(sum(losses) / len(losses), 4) if losses else 0
         
         total_rewards.append(total_reward)
         averages_rewards.append(average_reward)
@@ -110,9 +115,9 @@ def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=
         print(f'Episodio acabado con una recompensa total de {total_reward}, una recompensa',
               f'promedio de {average_reward} y una pérdida promedio de {average_loss}')
 
-    model_filename = generate_filename('DDDQL', 'model_weights', agent.update_counter, 'h5')
-    buffer_filename = generate_filename('DDDQL', 'replay_buffer', agent.update_counter, 'pkl')
-    parameters_filename = generate_filename('DDDQL', 'training_state', agent.update_counter, 'pkl')
+    model_filename = generate_filename('DDDQL', 'model_weights', initial_steps+count_steps, 'h5')
+    buffer_filename = generate_filename('DDDQL', 'replay_buffer', initial_steps+count_steps, 'pkl')
+    parameters_filename = generate_filename('DDDQL', 'training_state', initial_steps+count_steps, 'pkl')
 
     agent.save_train(model_filename, buffer_filename, parameters_filename)
 
@@ -120,18 +125,18 @@ def train_dddql(total_steps, model_path=None, buffer_path=None, parameters_path=
     average_reward = round(sum(averages_rewards) / len(averages_rewards),2)
     average_loss = round(sum(averages_losses) / len(averages_losses),4)
 
-    print(f'Entrenamiento guardado tras {global_steps} steps con una recompensa',
-          f'y loss promedio por episodio de {average_reward} y {average_loss}')
+    print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa',
+          f'y loss promedio por episodio de {average_reward} y {average_loss}\n')
 
     return total_reward, average_reward, average_loss
 
 def train_ppo():
     pass
 
-def train_by_steps(steps_befor_save, initial_steps, total_train_steps, algorithm):
+def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm):
 
     # Steps totales que lleva el entrenamiento
-    total_steps = 0
+    count_steps = 0
 
     first_train = False
     
@@ -140,10 +145,11 @@ def train_by_steps(steps_befor_save, initial_steps, total_train_steps, algorithm
 
     match algorithm:
         case 'DDDQL':
-            while total_steps < total_train_steps:
+            # Mientras llevemos menos steps que el total que queremos realizar
+            while count_steps < total_train_steps:
                 # Si no hay un modelo previo que entrenar se empieza desde 0
                 if first_train:
-                    total_reward, average_reward, average_loss = train_dddql(steps_befor_save)
+                    total_reward, average_reward, average_loss = train_dddql(steps_before_save, initial_steps)
                     first_train = False
                 # Si hay un modelo previo se carga y se entrena desde ese punto
                 else:
@@ -157,15 +163,15 @@ def train_by_steps(steps_befor_save, initial_steps, total_train_steps, algorithm
                         return
 
                     # Si todos sus ficheros existen se realiza el entrenamiento desde el modelo dado
-                    total_reward, average_reward, average_loss = train_dddql(steps_befor_save, model_filename, buffer_filename, parameters_filename)
+                    total_reward, average_reward, average_loss = train_dddql(steps_before_save, initial_steps, model_filename, buffer_filename, parameters_filename)
 
                 # Guardamos los datos de como ha ido el entrenamiento para ir viendo su evolución
-                csv_save_train(algorithm, initial_steps, total_steps, total_reward, average_reward, average_loss)
+                csv_save_train(algorithm, initial_steps, steps_before_save, total_reward, average_reward, average_loss)
 
-                # Sumamos los steps realizados al total y a los iniciales para llevar el recuento
+                # Sumamos los steps realizados al count total y a los iniciales para llevar el recuento
                 # de steps totales entrenados en esta llamada y los totales entrenados por el modelo
-                total_steps += steps_befor_save
-                initial_steps += steps_befor_save
+                count_steps += steps_before_save
+                initial_steps += steps_before_save
         
         case 'PPO':
             pass
