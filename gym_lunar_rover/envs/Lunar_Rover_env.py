@@ -110,7 +110,7 @@ class Rover:
         # comprobaciones extras por no haber movimiento
         elif action == 0:
             # Penalización menor por gasto de energía en descanso
-            reward += -0.5
+            reward += -1
             self.total_reward += reward
             self.env.total_reward += reward
             obs, obs_rew = self.get_observation()
@@ -153,7 +153,7 @@ class Rover:
                 self.mined = True
             # Recompensa positiva si ha llegado al punto de recogida tras minar
             elif new_pos == LunarObjects.BLENDER.value and self.mined == True:
-                reward += 500
+                reward += 300
                 self.done = True
 
                 # Al terminar el Rover se debe borrar del mapa para que los demás
@@ -180,11 +180,11 @@ class Rover:
             # Recompensa negativa por moverse sobre cualquier otra posición 
             # con objeto sin recompensa especial
             else:
-                reward += -1
+                reward += -2
 
         # Recompensa negativa por el gasto de energía en el movimiento a un espacio vacio
         else:
-            reward += -1
+            reward += -2
 
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa

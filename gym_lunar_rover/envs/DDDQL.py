@@ -9,7 +9,7 @@ from tensorflow.keras.regularizers import l1, l2, l1_l2 # type: ignore
 from tensorflow.keras.layers import Dense, Flatten, Conv2D, Input, Concatenate, BatchNormalization, Dropout # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
 
-def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0.25, l1_rate=0, l2_rate=0.01):
+def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0.3, l1_rate=0, l2_rate=0.05):
     # Regularización L1, L2 o ambas combinadas
     if l1_rate!=0 and l2_rate!=0:
         reg = l1_l2(l1=l1_rate, l2=l2_rate)
@@ -25,10 +25,10 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0.25, l1_rat
 
     # Procesamiento de la observación
     obs_x = Conv2D(32, (3, 3), activation='relu', kernel_regularizer=reg)(obs_input)
-    obs_x = Conv2D(64, (3, 3), activation='relu', kernel_regularizer=reg)(obs_x)
-    obs_x = Flatten()(obs_x)
-    obs_x = Dense(128, activation='relu', kernel_regularizer=reg)(obs_x)
     obs_x = BatchNormalization()(obs_x)
+    obs_x = Conv2D(64, (3, 3), activation='relu', kernel_regularizer=reg)(obs_x)
+    obs_x = BatchNormalization()(obs_x)
+    obs_x = Flatten()(obs_x)
     obs_x = Dropout(dropout_rate)(obs_x) 
 
     # Capa de entrada para la matriz de observación
@@ -45,7 +45,7 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0.25, l1_rat
     combined = Concatenate()([obs_x, info_x])
 
     # Capas densas después de la concatenación
-    combined_x = Dense(128, activation='relu', kernel_regularizer=reg)(combined)
+    combined_x = Dense(64, activation='relu', kernel_regularizer=reg)(combined)
     combined_x = BatchNormalization()(combined_x)
     combined_x = Dense(128, activation='relu', kernel_regularizer=reg)(combined_x)
     combined_x = BatchNormalization()(combined_x)
@@ -205,12 +205,12 @@ class DoubleDuelingDQNAgent:
         # Convertir arrays a tensores
         observations = tf.convert_to_tensor(observations, dtype=tf.float32)
         observations = tf.expand_dims(observations, axis=-1)
-        infos = tf.convert_to_tensor(infos, dtype=tf.int32)
+        infos = tf.convert_to_tensor(infos, dtype=tf.float32)
         actions = tf.convert_to_tensor(actions, dtype=tf.int32)
         rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
         next_observations = tf.convert_to_tensor(next_observations, dtype=tf.float32)
         next_observations = tf.expand_dims(next_observations, axis=-1)
-        next_infos = tf.convert_to_tensor(next_infos, dtype=tf.int32)
+        next_infos = tf.convert_to_tensor(next_infos, dtype=tf.float32)
         dones = tf.convert_to_tensor(dones, dtype=tf.float32)
 
         # Obtener Q-values del modelo principal para el estado actual y el siguiente estado
