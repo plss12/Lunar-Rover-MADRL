@@ -44,15 +44,14 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     count_steps = 0
 
     total_rewards = []
-    averages_rewards = []
-    averages_losses = []
+    total_losses = []
 
     while count_steps < total_steps:
         observations = list(env.reset()[0])
         dones = [False]*n_agents
         iteration = 0
-        rewards = []
-        losses = []
+        episode_rewards = []
+        episode_losses = []
 
         # Comprobamos que haya Rovers sin terminar y se limita el número de iteraciones
         # para no sobreentrenar situaciones inusuales
@@ -85,9 +84,9 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 observations[i] = next_observation
                 dones[i] = done
 
-                rewards.append(reward)
+                episode_rewards.append(reward)
                 if loss:
-                    losses.append(loss)
+                    episode_losses.append(loss)
 
                 count_steps +=1
 
@@ -97,16 +96,15 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
             if count_steps >= total_steps:
                 break
 
-        total_reward = sum(rewards)
-        average_reward = round(sum(rewards) / len(rewards),2)
-        average_loss = round(sum(losses) / len(losses), 4) if losses else 0
+        episode_total_reward = sum(episode_rewards)
+        episode_average_reward = round(sum(episode_rewards) / len(episode_rewards),2)
+        episode_average_loss = round(sum(episode_losses) / len(episode_losses), 4) if episode_losses else 0
         
-        total_rewards.append(total_reward)
-        averages_rewards.append(average_reward)
-        averages_losses.append(average_loss)
+        total_rewards.extend(episode_rewards)
+        total_losses.extend(episode_losses)
 
-        print(f'Episodio acabado en la iteración {iteration} con una recompensa total de {total_reward},',
-              f'una recompensa promedio de {average_reward} y una pérdida promedio de {average_loss}')
+        print(f'Episodio acabado en la iteración {iteration} con una recompensa total de {episode_total_reward},',
+              f'una recompensa promedio de {episode_average_reward} y una pérdida promedio de {episode_average_loss}')
 
     model_filename = generate_filename('DDDQL', 'model_weights', initial_steps+count_steps, 'weights.h5')
     buffer_filename = generate_filename('DDDQL', 'replay_buffer', initial_steps+count_steps, 'pkl')
@@ -115,8 +113,8 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     agent.save_train(model_filename, buffer_filename, parameters_filename)
 
     total_reward = sum(total_rewards)
-    average_reward = round(sum(averages_rewards) / len(averages_rewards),2)
-    average_loss = round(sum(averages_losses) / len(averages_losses),4)
+    average_reward = round(total_reward / count_steps, 2)
+    average_loss = round(sum(total_losses) / len(total_losses), 4)
 
     print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa',
           f'y loss promedio por episodio de {average_reward} y {average_loss}\n')
@@ -177,7 +175,7 @@ def main():
     steps_before_save = 50000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
-    initial_steps = 0
+    initial_steps = 100000
     # Steps totales que queremos alcanzar
     total_train_steps = 1000000
     # Algoritmo que queremos usar (DDDQL o PPO)
