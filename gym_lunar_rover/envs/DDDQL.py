@@ -145,7 +145,7 @@ class DoubleDuelingDQNAgent:
             self.new_model()
         
         # Callback para la reducción del lr si el loss no mejora
-        self.reduce_lr_plateau = CustomReduceLROnPlateau(self.optimizer, patience=patience, cooldown=cooldown, factor=lr_decay_factor, initial_lr=lr, min_lr=min_lr)
+        self.reduce_lr_plateau = CustomReduceLROnPlateau(optimizer=self.optimizer, patience=patience, cooldown=cooldown, factor=lr_decay_factor, initial_lr=self.lr, min_lr=min_lr)
             
         # Iniciamos el Experience Replay Buffer o cargamos el del entrenamiento previo
         self.replay_buffer = ExperienceReplayBuffer(buffer_size, batch_size)
