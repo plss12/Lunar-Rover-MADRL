@@ -1,6 +1,7 @@
 import numpy as np
 import random
 from gym_lunar_rover.envs.Lunar_Rover_env import *
+from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau
 from collections import deque
 import pickle
 import tensorflow as tf
@@ -8,42 +9,6 @@ from tensorflow.keras.models import Model # type: ignore
 from tensorflow.keras.regularizers import l1, l2, l1_l2 # type: ignore
 from tensorflow.keras.layers import Layer, Dense, Flatten, Conv2D, Input, Concatenate, BatchNormalization, Dropout # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
-
-# Estrategia de reducción de lr si no mejora el loss durante el train
-class CustomReduceLROnPlateau:
-    def __init__(self, optimizer, patience, cooldown, factor, initial_lr, min_lr):
-        self.optimizer = optimizer
-        self.patience = patience
-        self.cooldown = cooldown
-        self.cooldown_counter = 0
-        self.factor = factor
-        self.lr = initial_lr
-        self.min_lr = min_lr
-        self.best_loss = float('inf')
-        self.wait = 0
-    
-    def on_epoch_end(self, loss):
-        if self.cooldown_counter > 0:
-            self.cooldown_counter -= 1
-            self.wait = 0
-        
-        if loss < self.best_loss:
-            self.best_loss = loss
-            self.wait = 0
-
-        elif self.cooldown_counter <= 0 :
-            self.wait += 1
-            if self.wait >= self.patience:
-                self._reduce_lr()
-                self.wait = 0
-                self.cooldown_counter = self.cooldown
-        
-        return self.lr
-    
-    def _reduce_lr(self):
-        new_lr = max(self.lr * self.factor, self.min_lr)
-        self.optimizer.learning_rate.assign(new_lr)
-        self.lr = new_lr
 
 class ReduceMeanLayer(Layer):
     def call(self, inputs):
@@ -136,7 +101,11 @@ class ExperienceReplayBuffer():
 
 # Agente para el entrenamiento  
 class DoubleDuelingDQNAgent:
-    def __init__(self, observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards, epsilon, min_epsilon, epsilon_decay, gamma, lr, min_lr, lr_decay_factor, patience, cooldown, dropout_rate, l1_rate, l2_rate, update_target_freq, model_path=None, buffer_path=None, parameters_path=None):
+    def __init__(self, observation_shape, info_shape, action_dim, buffer_size, batch_size,
+                warm_up_steps, clip_rewards, epsilon, min_epsilon, epsilon_decay, gamma, 
+                lr, min_lr, lr_decay_factor, patience, cooldown, 
+                dropout_rate, l1_rate, l2_rate, update_target_freq, 
+                model_path=None, buffer_path=None, parameters_path=None):
         
         self.action_dim = action_dim
         self.batch_size = batch_size
@@ -196,7 +165,7 @@ class DoubleDuelingDQNAgent:
 
             # Predecimos los Q-values en modo inferencia y cogemos la acción con el mayor
             q_values = self.primary_network([observation, info], training=False)
-            best_act = np.argmax(q_values[0].numpy())
+            best_act = np.argmax(q_values.numpy())
             return best_act
     
     def add_experience(self, observation, info, action, reward, next_observation, next_info, done):
@@ -331,5 +300,5 @@ class InferenceDDDQNAgent:
         
         # Predecimos los Q-values y cogemos la acción con el mayor
         q_values = self.primary_network([observation, info], training=False)
-        best_action = np.argmax(q_values[0].numpy())
+        best_action = np.argmax(q_values.numpy())
         return best_action

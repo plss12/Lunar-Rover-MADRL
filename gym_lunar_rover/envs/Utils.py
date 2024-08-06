@@ -1,7 +1,7 @@
 import os
 import csv
 import numpy as np
-from gym_lunar_rover.envs.Lunar_Rover_env import RoverObsObjects
+from gym_lunar_rover.envs.Lunar_Rover_env import RoverObsObjects, LunarObjects, RoversObjects
 
 # Función para generar un nombre de archivo único
 def generate_filename(algorithm, base_name, steps, extension):
@@ -38,6 +38,8 @@ def normalize_pos(positions, grid_size):
     positions = (positions - min) / (max - min)
     return positions
 
+# Normalizamos la observación del Rover en el rango 0 a 1 
+# para la entrada de la red DDDQN
 def normalize_obs(obs):
     min = RoverObsObjects.OUT.value
     max = RoverObsObjects.OTHER_MINE.value
@@ -45,3 +47,50 @@ def normalize_obs(obs):
     obs = (obs - min) / (max - min)
 
     return obs
+
+# Normalizamos el mapa en el rango 0 a 1 para la entrada del 
+# Critic en el algoritmo MAPPO
+def normalize_map(map):
+    min = LunarObjects.FLOOR.value
+    objs = RoversObjects.get_agents_mines()
+    max = max(list(objs.keys()) + list(objs.values()))
+
+    map = (map - min) / (max - min)
+
+    return map
+
+# Estrategia de reducción de lr si no mejora el loss durante el train
+class CustomReduceLROnPlateau:
+    def __init__(self, optimizer, patience, cooldown, factor, initial_lr, min_lr):
+        self.optimizer = optimizer
+        self.patience = patience
+        self.cooldown = cooldown
+        self.cooldown_counter = 0
+        self.factor = factor
+        self.lr = initial_lr
+        self.min_lr = min_lr
+        self.best_loss = float('inf')
+        self.wait = 0
+    
+    def on_epoch_end(self, loss):
+        if self.cooldown_counter > 0:
+            self.cooldown_counter -= 1
+            self.wait = 0
+        
+        if loss < self.best_loss:
+            self.best_loss = loss
+            self.wait = 0
+
+        elif self.cooldown_counter <= 0 :
+            self.wait += 1
+            if self.wait >= self.patience:
+                self._reduce_lr()
+                self.wait = 0
+                self.cooldown_counter = self.cooldown
+        
+        return self.lr
+    
+    def _reduce_lr(self):
+        new_lr = max(self.lr * self.factor, self.min_lr)
+        self.optimizer.learning_rate.assign(new_lr)
+        self.lr = new_lr
