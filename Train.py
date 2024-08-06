@@ -35,7 +35,10 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     warm_up_steps = 100
     clip_rewards = False
 
-    agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards, max_epsilon, min_epsilon, epsilon_decay, patiente, cooldown, gamma, max_lr, min_lr, lr_decay_factor, dropout_rate, l1_rate, l2_rate, update_target_freq, model_path, buffer_path, parameters_path)
+    agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
+                                max_epsilon, min_epsilon, epsilon_decay, gamma, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
+                                dropout_rate, l1_rate, l2_rate, update_target_freq, 
+                                model_path, buffer_path, parameters_path)
 
     max_iterations = 5000
     count_steps = 0
