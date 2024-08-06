@@ -95,10 +95,10 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
         averages_rewards.append(average_reward)
         averages_losses.append(average_loss)
 
-        print(f'Episodio acabado con una recompensa total de {total_reward}, una recompensa',
-              f'promedio de {average_reward} y una pérdida promedio de {average_loss}')
+        print(f'Episodio acabado en la iteración {iteration} con una recompensa total de {total_reward},',
+              f'una recompensa promedio de {average_reward} y una pérdida promedio de {average_loss}')
 
-    model_filename = generate_filename('DDDQL', 'model_weights', initial_steps+count_steps, 'h5')
+    model_filename = generate_filename('DDDQL', 'model_weights', initial_steps+count_steps, 'weights.h5')
     buffer_filename = generate_filename('DDDQL', 'replay_buffer', initial_steps+count_steps, 'pkl')
     parameters_filename = generate_filename('DDDQL', 'training_state', initial_steps+count_steps, 'pkl')
 
@@ -136,7 +136,7 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
                     first_train = False
                 # Si hay un modelo previo se carga y se entrena desde ese punto
                 else:
-                    model_filename = generate_filename(algorithm, 'model_weights', initial_steps, 'h5')
+                    model_filename = generate_filename(algorithm, 'model_weights', initial_steps, 'weights.h5')
                     buffer_filename = generate_filename(algorithm, 'replay_buffer', initial_steps, 'pkl')
                     parameters_filename = generate_filename(algorithm, 'training_state', initial_steps, 'pkl')
 
@@ -164,7 +164,7 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
 
 def main():
     # Steps que queremos realizar antes de cada guardado
-    steps_before_save = 100000
+    steps_before_save = 50000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
     initial_steps = 0

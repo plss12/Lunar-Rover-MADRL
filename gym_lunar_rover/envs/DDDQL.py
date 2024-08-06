@@ -6,9 +6,15 @@ import pickle
 import tensorflow as tf
 from tensorflow.keras.models import Model # type: ignore
 from tensorflow.keras.regularizers import l1, l2, l1_l2 # type: ignore
-from tensorflow.keras.layers import Dense, Flatten, Conv2D, Input, Concatenate, BatchNormalization, Dropout # type: ignore
+from tensorflow.keras.layers import Layer, Dense, Flatten, Conv2D, Input, Concatenate, BatchNormalization, Dropout # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
 
+class ReduceMeanLayer(Layer):
+    def call(self, inputs):
+        advantage = inputs
+        mean_advantage = tf.reduce_mean(advantage, axis=-1, keepdims=True)
+        return mean_advantage
+    
 def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0.3, l1_rate=0, l2_rate=0.05):
     # Regularización L1, L2 o ambas combinadas
     if l1_rate!=0 and l2_rate!=0:
@@ -61,8 +67,11 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0.3, l1_rate
     advantage = BatchNormalization()(advantage)
     advantage = Dense(output_dim)(advantage)
 
+    # Capa ReduceMeanLayer para el cálculo de Q
+    mean_advantage = ReduceMeanLayer()(advantage)
+
     # Cálculo de Q
-    q = value + advantage - tf.reduce_mean(advantage, axis=-1, keepdims=True)
+    q = value + advantage - mean_advantage
 
     model = Model(inputs=[obs_input, info_input], outputs=q)
     return model
@@ -95,6 +104,7 @@ class DoubleDuelingDQNAgent:
         
         self.action_dim = action_dim
         self.gamma = gamma
+        self.lr = lr
         self.batch_size = batch_size
         self.buffer_size = buffer_size
         self.warm_up_steps = warm_up_steps
@@ -115,17 +125,13 @@ class DoubleDuelingDQNAgent:
         self.primary_network = dddqn_model(observation_shape, info_shape, action_dim)
         self.target_network = dddqn_model(observation_shape, info_shape, action_dim)
 
-        self.optimizer = Adam(learning_rate=lr)
-        self.primary_network.compile(loss='mse', optimizer=self.optimizer)
-        self.target_network.compile(loss='mse', optimizer=self.optimizer)
-
-        # Si hay pesos guardados se cargan
+        # Si hay modelos guardados se cargan
         if model_path:
-            self.load_model(model_path)
+            self.load_model(model_path) 
 
-        # Si no hay pesos para cargar, se igualan los pesos iniciales de las redes
+        # Si no hay pesos guardados se crean los modelos
         else:
-            self.update_target_network()
+            self.new_model()
         
         # Iniciamos el Experience Replay Buffer o cargamos el del entrenamiento previo
         self.replay_buffer = ExperienceReplayBuffer(buffer_size, batch_size)
@@ -168,7 +174,16 @@ class DoubleDuelingDQNAgent:
 
     def load_model(self, file_path):
         self.primary_network.load_weights(file_path)
-        self.target_network.set_weights(self.primary_network.get_weights())
+        self.update_target_network()
+        self.optimizer = Adam(learning_rate=self.lr)
+        self.primary_network.compile(loss='mse', optimizer=self.optimizer)
+        self.target_network.compile(loss='mse', optimizer=self.optimizer)
+
+    def new_model(self):
+        self.optimizer = Adam(learning_rate=self.lr)
+        self.primary_network.compile(loss='mse', optimizer=self.optimizer)
+        self.target_network.compile(loss='mse', optimizer=self.optimizer)
+        self.update_target_network()
 
     def save_buffer(self, file_path):
         with open(file_path, 'wb') as f:
