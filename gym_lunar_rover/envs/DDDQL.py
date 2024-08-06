@@ -9,13 +9,49 @@ from tensorflow.keras.regularizers import l1, l2, l1_l2 # type: ignore
 from tensorflow.keras.layers import Layer, Dense, Flatten, Conv2D, Input, Concatenate, BatchNormalization, Dropout # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
 
+# Estrategia de reducción de lr si no mejora el loss durante el train
+class CustomReduceLROnPlateau:
+    def __init__(self, optimizer, patience, cooldown, factor, initial_lr, min_lr):
+        self.optimizer = optimizer
+        self.patience = patience
+        self.cooldown = cooldown
+        self.cooldown_counter = 0
+        self.factor = factor
+        self.lr = initial_lr
+        self.min_lr = min_lr
+        self.best_loss = float('inf')
+        self.wait = 0
+    
+    def on_epoch_end(self, loss):
+        if self.cooldown_counter > 0:
+            self.cooldown_counter -= 1
+            self.wait = 0
+        
+        if loss < self.best_loss:
+            self.best_loss = loss
+            self.wait = 0
+
+        elif self.cooldown_counter <= 0 :
+            self.wait += 1
+            if self.wait >= self.patience:
+                self._reduce_lr()
+                self.wait = 0
+                self.cooldown_counter = self.cooldown
+        
+        return self.lr
+    
+    def _reduce_lr(self):
+        new_lr = max(self.lr * self.factor, self.min_lr)
+        self.optimizer.learning_rate.assign(new_lr)
+        self.lr = new_lr
+
 class ReduceMeanLayer(Layer):
     def call(self, inputs):
         advantage = inputs
         mean_advantage = tf.reduce_mean(advantage, axis=-1, keepdims=True)
         return mean_advantage
     
-def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0.3, l1_rate=0, l2_rate=0.05):
+def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0, l2_rate=0):
     # Regularización L1, L2 o ambas combinadas
     if l1_rate!=0 and l2_rate!=0:
         reg = l1_l2(l1=l1_rate, l2=l2_rate)
@@ -100,21 +136,27 @@ class ExperienceReplayBuffer():
 
 # Agente para el entrenamiento  
 class DoubleDuelingDQNAgent:
-    def __init__(self, observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards, epsilon, min_epsilon, epsilon_decay, gamma, lr, update_target_freq, model_path=None, buffer_path=None, parameters_path=None):
+    def __init__(self, observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards, epsilon, min_epsilon, epsilon_decay, gamma, lr, min_lr, lr_decay_factor, patience, cooldown, dropout_rate, l1_rate, l2_rate, update_target_freq, model_path=None, buffer_path=None, parameters_path=None):
         
         self.action_dim = action_dim
-        self.gamma = gamma
-        self.lr = lr
         self.batch_size = batch_size
         self.buffer_size = buffer_size
         self.warm_up_steps = warm_up_steps
         self.clip_rewards = clip_rewards
+        
+        # Parámetro de gamma para la importancia de las rewards futuras
+        self.gamma = gamma
+
+        # Parámetro de lr para los ajustes del modelo
+        self.lr = lr
+
         # Parámetros de epsilon para el balance entre exploración/explotación
         self.epsilon = epsilon
+        self.initial_epsilon = epsilon
         self.min_epsilon = min_epsilon
         self.epsilon_decay = epsilon_decay
 
-        # Contador de actualizaciones
+        # Contador de actualizaciones totales del entrenamiento
         self.update_counter = 0
         self.update_target_freq = update_target_freq
 
@@ -122,8 +164,8 @@ class DoubleDuelingDQNAgent:
         if parameters_path:
             self.load_parameters(parameters_path)
 
-        self.primary_network = dddqn_model(observation_shape, info_shape, action_dim)
-        self.target_network = dddqn_model(observation_shape, info_shape, action_dim)
+        self.primary_network = dddqn_model(observation_shape, info_shape, action_dim, dropout_rate, l1_rate, l2_rate)
+        self.target_network = dddqn_model(observation_shape, info_shape, action_dim, dropout_rate, l1_rate, l2_rate)
 
         # Si hay modelos guardados se cargan
         if model_path:
@@ -133,6 +175,9 @@ class DoubleDuelingDQNAgent:
         else:
             self.new_model()
         
+        # Callback para la reducción del lr si el loss no mejora
+        self.reduce_lr_plateau = CustomReduceLROnPlateau(self.optimizer, patience=patience, cooldown=cooldown, factor=lr_decay_factor, initial_lr=lr, min_lr=min_lr)
+            
         # Iniciamos el Experience Replay Buffer o cargamos el del entrenamiento previo
         self.replay_buffer = ExperienceReplayBuffer(buffer_size, batch_size)
 
@@ -165,10 +210,14 @@ class DoubleDuelingDQNAgent:
         self.target_network.set_weights(self.primary_network.get_weights())
 
     def update_epsilon(self):
-        # Disminuimos el epsilon según el epsilon decay y viendo que no baje del mínimo
-        self.epsilon = max(self.min_epsilon, self.epsilon - self.epsilon_decay)
-        return self.epsilon
-    
+        # Disminuimos el epsilon con una estrategia exponencial
+        self.epsilon = self.min_epsilon + (self.initial_epsilon  - self.min_epsilon) * np.exp(-self.epsilon_decay * self.update_counter)
+        #self.epsilon = max(self.min_epsilon, self.epsilon - self.epsilon_decay)
+
+    def update_lr(self, loss):
+        # Disminuimos el lr con la estrategia plateau
+        self.lr = self.reduce_lr_plateau.on_epoch_end(loss)
+
     def save_model(self, file_path):
         self.primary_network.save_weights(file_path)
 
@@ -196,7 +245,9 @@ class DoubleDuelingDQNAgent:
     def save_parameters(self, file_path):
         state = {
             'epsilon': self.epsilon,
-            'update_counter': self.update_counter
+            'lr': self.lr,
+            'update_counter': self.update_counter,
+            'warm_up_steps': self.warm_up_steps
         }
         with open(file_path, 'wb') as f:
             pickle.dump(state, f)
@@ -206,7 +257,8 @@ class DoubleDuelingDQNAgent:
             state = pickle.load(f)
         self.epsilon = state['epsilon']
         self.update_counter = state['update_counter']
-        self.warm_up_steps = 0
+        self.lr = state['lr']
+        self.warm_up_steps = state['warm_up_steps']
 
     def train(self):
 
@@ -241,9 +293,6 @@ class DoubleDuelingDQNAgent:
             action_masks = tf.one_hot(actions, self.action_dim)
             q_values_for_actions = tf.reduce_sum(q_values * action_masks, axis=1)
             loss = tf.reduce_mean(tf.square(target_q_values - q_values_for_actions))
-
-            if loss > 100000:
-                print("Loss ha aumentado demasiado")
         
         # Calcular y aplicar el gradiente
         gradients = tape.gradient(loss, self.primary_network.trainable_variables)
@@ -255,8 +304,9 @@ class DoubleDuelingDQNAgent:
         if self.update_counter % self.update_target_freq == 0:
             self.update_target_network()
 
-        # Actualizamos el valor de epsilon
+        # Actualizamos el valor de epsilon y lr
         self.update_epsilon()
+        self.update_lr(loss.numpy())
     
         return round(loss.numpy(), 4)
     
