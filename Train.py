@@ -19,19 +19,24 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     # Hiperparámetros
     buffer_size = 100000
     batch_size = 64
-    gamma = 0.99
+
+    gamma = 0.95
+
     max_lr = 1e-3
-    min_lr = 1e-6
-    lr_decay_factor = 0.5
-    patiente = 20
+    min_lr = 1e-5
+    lr_decay_factor = 0.8
+    patiente = 25
     cooldown = 10
+
     max_epsilon = 1
-    min_epsilon = 0.05
+    min_epsilon = 0.4
     epsilon_decay = 1e-5
-    dropout_rate = 0.5
+
+    dropout_rate = 0.3
     l1_rate = 0
-    l2_rate = 0.1
-    update_target_freq = 1000
+    l2_rate = 0.05
+
+    update_target_freq = 500
     warm_up_steps = 100
     clip_rewards = False
 
@@ -117,7 +122,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     average_loss = round(sum(total_losses) / len(total_losses), 4)
 
     print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa',
-          f'y loss promedio por episodio de {average_reward} y {average_loss}\n')
+          f'y loss promedio de {average_reward} y {average_loss}\n')
 
     return total_reward, average_reward, average_loss
 
@@ -175,7 +180,7 @@ def main():
     steps_before_save = 50000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
-    initial_steps = 100000
+    initial_steps = 0
     # Steps totales que queremos alcanzar
     total_train_steps = 1000000
     # Algoritmo que queremos usar (DDDQL o PPO)
