@@ -109,8 +109,8 @@ class Rover:
         # Descanso, y terminamos el proceso al no necesitar
         # comprobaciones extras por no haber movimiento
         elif action == 0:
-            # Penalización menor por gasto de energía en descanso
-            reward += -1
+            # Penalización por gasto de energía en descanso y no explorar
+            reward += -2
             self.total_reward += reward
             self.env.total_reward += reward
             obs, obs_rew = self.get_observation()
@@ -127,17 +127,17 @@ class Rover:
         if new_pos != 0:
             # Recompensa negativa por obstáculo pequeño
             if new_pos == LunarObjects.SMALL_OBSTACLE.value:
-                reward += -5
+                reward += -3
 
             # Recompensa negativa por obstáculo grande
             elif new_pos == LunarObjects.BIG_OBSTACLE.value:
-                reward += -10
+                reward += -8
 
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
             # dos agentes en una misma posición
             elif new_pos in self.env.rovers_mines_ids.keys():
-                reward += -20
+                reward += -10
                 self.total_reward += reward
                 self.env.total_reward += reward
                 obs, obs_rew = self.get_observation()
@@ -153,7 +153,7 @@ class Rover:
                 self.mined = True
             # Recompensa positiva si ha llegado al punto de recogida tras minar
             elif new_pos == LunarObjects.BLENDER.value and self.mined == True:
-                reward += 300
+                reward += 1000
                 self.done = True
 
                 # Al terminar el Rover se debe borrar del mapa para que los demás
@@ -180,11 +180,11 @@ class Rover:
             # Recompensa negativa por moverse sobre cualquier otra posición 
             # con objeto sin recompensa especial
             else:
-                reward += -2
+                reward += -1
 
         # Recompensa negativa por el gasto de energía en el movimiento a un espacio vacio
         else:
-            reward += -2
+            reward += -1
 
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa

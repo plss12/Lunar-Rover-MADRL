@@ -14,7 +14,7 @@ def test_dddql(steps, know_pos):
     test_env = TestEnv(n_agents, grid_size, vision_range, know_pos=know_pos, render_mode='human', seed = 1)
     action_dim = test_env.action_space.nvec[0]
 
-    model_filename = generate_filename('DDDQL','model_weights', steps, 'h5')
+    model_filename = generate_filename('DDDQL','model_weights', steps, 'weights.h5')
     agent = InferenceDDDQNAgent(observation_shape, info_shape, action_dim, model_filename)
 
     # Hay que probar que en todos los episodios se obtiene la misma recompensa
@@ -51,7 +51,7 @@ def main():
     # Número de steps del modelo que queremos testear y si los rovers 
     # incluyen o no la posición de la mina y la mezcladora desde un inicio
     model_steps = 0
-    initial_know_pos = True
+    initial_know_pos = False
 
     test_dddql(model_steps,initial_know_pos)
     
