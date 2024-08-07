@@ -30,6 +30,7 @@ def test_dddql(steps, know_pos):
                 # Si el Rover ha terminado saltamos al siguiente
                 if rover.done:
                     continue
+                available_actions = rover.get_movements()
                 observation = observations[i]
                 # Normalizamos la observación en el rango 0-1
                 observation = normalize_obs(observation)
@@ -37,7 +38,7 @@ def test_dddql(steps, know_pos):
                 info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
                 info = np.append(info, int(rover.mined))
 
-                action = agent.act(observation, info)
+                action = agent.act(observation, info, available_actions)
                 step_act = rover.step(action)
 
                 observations[i] = step_act[0]

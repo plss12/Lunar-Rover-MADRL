@@ -83,8 +83,8 @@ class ExperienceReplayBuffer():
         self.batch_size = batch_size
         self.buffer = deque(maxlen=buffer_size)
 
-    def add_exp(self, observation, info, action, reward, next_observation, next_info, done):
-        self.buffer.append((observation, info, action, reward, next_observation, next_info, done))
+    def add_exp(self, observation, info, action, reward, next_observation, next_info, done, next_availables_actions):
+        self.buffer.append((observation, info, action, reward, next_observation, next_info, done, next_availables_actions))
     
     def sample_exp(self):
         # Ajusta batch_size si es mayor que el número de experiencias disponibles
@@ -92,9 +92,9 @@ class ExperienceReplayBuffer():
         batch_size = min(self.batch_size, current_size)
 
         batch = random.sample(self.buffer, batch_size)
-        observations, infos, actions, rewards, next_observations, next_infos, dones = zip(*batch)
+        observations, infos, actions, rewards, next_observations, next_infos, dones, next_availables_actions = zip(*batch)
         return (np.array(observations), np.array(infos), np.array(actions), np.array(rewards), 
-                np.array(next_observations), np.array(next_infos), np.array(dones))
+                np.array(next_observations), np.array(next_infos), np.array(dones), next_availables_actions)
     
     def __len__(self):
         return len(self.buffer)
@@ -163,16 +163,23 @@ class DoubleDuelingDQNAgent:
             observation = np.expand_dims(observation, axis=-1)
             info = np.expand_dims(info, axis=0)
 
-            # Predecimos los Q-values en modo inferencia y cogemos la acción con el mayor
-            q_values = self.primary_network([observation, info], training=False)
-            best_act = np.argmax(q_values.numpy())
+            # Predecimos los Q-values en modo inferencia
+            q_values = self.primary_network([observation, info], training=False).numpy()
+            
+            # Implementamos una máscara para restringir las acciones inválidas
+            mask = np.full(q_values.shape, -np.inf)
+            mask[0, available_actions] = 0
+            masked_q_values = q_values + mask
+
+            # Cogemos la mejor acción dentro de las acciones válidas
+            best_act = np.argmax(masked_q_values)
             return best_act
     
-    def add_experience(self, observation, info, action, reward, next_observation, next_info, done):
+    def add_experience(self, observation, info, action, reward, next_observation, next_info, done, available_actions_next):
         if self.clip_rewards:
             reward = np.clip(reward, -1.0, 1.0)
 
-        self.replay_buffer.add_exp(observation, info, action, reward, next_observation, next_info, done)
+        self.replay_buffer.add_exp(observation, info, action, reward, next_observation, next_info, done, available_actions_next)
 
     def update_target_network(self):
         # Hard update a la target network con los pesos de la primary network
@@ -236,7 +243,7 @@ class DoubleDuelingDQNAgent:
             self.warm_up_steps -= 1
             return 
         
-        observations, infos, actions, rewards, next_observations, next_infos, dones = self.replay_buffer.sample_exp()
+        observations, infos, actions, rewards, next_observations, next_infos, dones, next_availables_actions = self.replay_buffer.sample_exp()
         
         # Convertir arrays a tensores
         observations = tf.convert_to_tensor(observations, dtype=tf.float32)
@@ -249,13 +256,23 @@ class DoubleDuelingDQNAgent:
         next_infos = tf.convert_to_tensor(next_infos, dtype=tf.float32)
         dones = tf.convert_to_tensor(dones, dtype=tf.float32)
 
-        # Obtener Q-values del modelo principal para el estado actual y el siguiente estado
         with tf.GradientTape() as tape:
+            # Obtenemos los q-values del modelo principal para el estado actual
             q_values = self.primary_network([observations, infos], training=True)
+
+            # Obtenemos los q-values del modelo objetivo para el siguiente estado
             next_q_values = self.target_network([next_observations, next_infos], training=False)
 
+            # Creamos un tensor de índices para saber las posiciones de las acciones válidas
+            indices = [[i, action] for i, actions in enumerate(next_availables_actions) for action in actions]
+            indices = tf.constant(indices, dtype=tf.int32)
+
+            # Creamos y aplicamos una máscara para contar solo con las acciones válidas del siguiente estado
+            mask = tf.scatter_nd(indices, tf.ones(len(indices)), [self.batch_size, self.action_dim])
+            masked_next_q_values = next_q_values * mask - (1 - mask) * tf.float32.max
+
             # Calcular el valor objetivo usando el Dueling Double DQN
-            max_next_q_values = tf.reduce_max(next_q_values, axis=1)
+            max_next_q_values = tf.reduce_max(masked_next_q_values, axis=1)
             target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
 
             # Calcular la pérdida
@@ -292,13 +309,20 @@ class InferenceDDDQNAgent:
         self.primary_network.compile(loss='mse', optimizer='adam')
         self.primary_network.load_weights(model_path)
 
-    def act(self, observation, info):
+    def act(self, observation, info, available_actions):
         # Ajustamos las dimensiones de la observación y la info
         observation = np.expand_dims(observation, axis=0)
         observation = np.expand_dims(observation, axis=-1)
         info = np.expand_dims(info, axis=0)
+
+        # Predecimos los Q-values en modo inferencia
+        q_values = self.primary_network([observation, info], training=False).numpy()
         
-        # Predecimos los Q-values y cogemos la acción con el mayor
-        q_values = self.primary_network([observation, info], training=False)
-        best_action = np.argmax(q_values.numpy())
-        return best_action
+        # Implementamos una máscara para restringir las acciones inválidas
+        mask = np.full(q_values.shape, -np.inf)
+        mask[0, available_actions] = 0
+        masked_q_values = q_values + mask
+
+        # Cogemos la mejor acción dentro de las acciones válidas
+        best_act = np.argmax(masked_q_values)
+        return best_act
