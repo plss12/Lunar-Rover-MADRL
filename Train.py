@@ -77,13 +77,18 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 action = agent.act(norm_observation, info, available_actions)
                 step_act = rover.step(action)
 
+                # Una vez realizada la acción obtenemos el nuevo estado para 
+                # añadir la experiencia completa al buffer
                 next_observation, reward, done = step_act[0:3]
                 # Normalizamos la observación en el rango 0-1
                 norm_next_observation = normalize_obs(next_observation)
                 # Normalizamos las posiciones en el rango 0-1
                 next_info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
                 next_info = np.append(next_info, int(rover.mined))
-                agent.add_experience(norm_observation, info, action, reward, norm_next_observation, next_info, done)
+                next_availables_actions = rover.get_movements()
+                agent.add_experience(norm_observation, info, action, reward, norm_next_observation, next_info, done, next_availables_actions)
+                
+                # Con la nueva experiencia añadida entrenamos y obtenemos el loss
                 loss = agent.train()
 
                 observations[i] = next_observation
