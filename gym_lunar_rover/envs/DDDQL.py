@@ -31,9 +31,9 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
     obs_input = Input(shape=(observation_dim, observation_dim, 1))  
 
     # Procesamiento de la observación
-    obs_x = Conv2D(32, (3, 3), activation='relu', kernel_regularizer=reg)(obs_input)
+    obs_x = Conv2D(16, (3, 3), activation='relu', kernel_regularizer=reg)(obs_input)
     obs_x = BatchNormalization()(obs_x)
-    obs_x = Conv2D(64, (3, 3), activation='relu', kernel_regularizer=reg)(obs_x)
+    obs_x = Conv2D(32, (3, 3), activation='relu', kernel_regularizer=reg)(obs_x)
     obs_x = BatchNormalization()(obs_x)
     obs_x = Flatten()(obs_x)
     obs_x = Dropout(dropout_rate)(obs_x) 
@@ -42,9 +42,9 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
     info_input = Input(shape=(info_dim, ))
 
     # Procesamiento de la posición
-    info_x = Dense(32, activation='relu', kernel_regularizer=reg)(info_input)
+    info_x = Dense(16, activation='relu', kernel_regularizer=reg)(info_input)
     info_x = BatchNormalization()(info_x)
-    info_x = Dense(64, activation='relu', kernel_regularizer=reg)(info_x)
+    info_x = Dense(32, activation='relu', kernel_regularizer=reg)(info_x)
     info_x = BatchNormalization()(info_x)
     info_x = Dropout(dropout_rate)(info_x)
 
@@ -52,20 +52,16 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
     combined = Concatenate()([obs_x, info_x])
 
     # Capas densas después de la concatenación
-    combined_x = Dense(64, activation='relu', kernel_regularizer=reg)(combined)
-    combined_x = BatchNormalization()(combined_x)
-    combined_x = Dense(128, activation='relu', kernel_regularizer=reg)(combined_x)
+    combined_x = Dense(32, activation='relu', kernel_regularizer=reg)(combined)
     combined_x = BatchNormalization()(combined_x)
     combined_x = Dropout(dropout_rate)(combined_x) 
 
     # Capa de valor
-    value = Dense(128, activation='relu', kernel_regularizer=reg)(combined_x)
-    value = BatchNormalization()(value)
+    value = Dense(32, activation='relu', kernel_regularizer=reg)(combined_x)
     value = Dense(1)(value)
 
     # Capa de ventaja
-    advantage = Dense(128, activation='relu', kernel_regularizer=reg)(combined_x)
-    advantage = BatchNormalization()(advantage)
+    advantage = Dense(32, activation='relu', kernel_regularizer=reg)(combined_x)
     advantage = Dense(output_dim)(advantage)
 
     # Capa ReduceMeanLayer para el cálculo de Q
@@ -143,7 +139,10 @@ class DoubleDuelingDQNAgent:
         # Si no hay pesos guardados se crean los modelos
         else:
             self.new_model()
-        
+
+        # self.primary_network.summary()
+        # self.target_network.summary()
+
         # Callback para la reducción del lr si el loss no mejora
         self.reduce_lr_plateau = CustomReduceLROnPlateau(optimizer=self.optimizer, patience=patience, cooldown=cooldown, factor=lr_decay_factor, initial_lr=self.lr, min_lr=min_lr)
             
@@ -156,7 +155,7 @@ class DoubleDuelingDQNAgent:
     def act(self, observation, info, available_actions):
         if np.random.rand() < self.epsilon:
             # Devolver una acción posible aleatoria
-            return np.int32(np.random.choice(available_actions))
+            return np.random.choice(available_actions)
         else:
             # Ajustamos las dimensiones de la observación y la info
             observation = np.expand_dims(observation, axis=0)
@@ -172,8 +171,7 @@ class DoubleDuelingDQNAgent:
             masked_q_values = q_values + mask
 
             # Cogemos la mejor acción dentro de las acciones válidas
-            best_act = np.argmax(masked_q_values)
-            return best_act
+            return np.argmax(masked_q_values)
     
     def add_experience(self, observation, info, action, reward, next_observation, next_info, done, available_actions_next):
         if self.clip_rewards:
@@ -192,7 +190,9 @@ class DoubleDuelingDQNAgent:
 
     def update_lr(self, loss):
         # Disminuimos el lr con la estrategia plateau
-        self.lr = self.reduce_lr_plateau.on_epoch_end(loss)
+        new_lr = self.reduce_lr_plateau.on_epoch_end(loss)
+        if new_lr!= self.lr:
+            self.lr = new_lr
 
     def save_model(self, file_path):
         self.primary_network.save_weights(file_path)
