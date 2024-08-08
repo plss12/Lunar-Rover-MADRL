@@ -109,8 +109,8 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 break
 
         episode_total_reward = sum(episode_rewards)
-        episode_average_reward = round(np.mean(episode_rewards),2)
-        episode_average_loss = round(np.mean(episode_losses), 4) if episode_losses else 0
+        episode_average_reward = round(float(np.mean(episode_rewards)),2)
+        episode_average_loss = round(float(np.mean(episode_losses)), 4) if episode_losses else 0
         
         total_rewards.extend(episode_rewards)
         total_losses.extend(episode_losses)
@@ -126,7 +126,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
     total_reward = sum(total_rewards)
     average_reward = round(total_reward / count_steps, 2)
-    average_loss = round(np.mean(total_losses), 4)
+    average_loss = round(float(np.mean(total_losses)), 4)
 
     print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa',
           f'y loss promedio de {average_reward} y {average_loss}\n')
@@ -140,14 +140,14 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     clip = 0.2
 
     max_lr = 1e-3
-    min_lr = 1e-5
+    min_lr = 1e-6
     lr_decay_factor = 0.8
     patiente = 25
     cooldown = 10
 
-    dropout_rate = 0.0
+    dropout_rate = 0.2
     l1_rate = 0
-    l2_rate = 0.05
+    l2_rate = 0.1
 
     clip_rewards = False
 
@@ -222,16 +222,16 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 break
 
         episode_total_reward = sum(episode_rewards)
-        episode_average_reward = round(np.mean(episode_rewards),2)
-        episode_average_actor_loss = round(np.mean(episode_actor_losses), 4) if episode_actor_losses else 0
-        episode_average_critic_loss = round(np.mean(episode_critic_losses), 4) if episode_critic_losses else 0
+        episode_average_reward = round(float(np.mean(episode_rewards)),2)
+        episode_average_actor_loss = round(float(np.mean(episode_actor_losses)), 4) if episode_actor_losses else 0
+        episode_average_critic_loss = round(float(np.mean(episode_critic_losses)), 4) if episode_critic_losses else 0
 
         total_rewards.extend(episode_rewards)
         total_actor_losses.extend(episode_actor_losses)
         total_critic_losses.extend(episode_critic_losses)
 
         print(f'Episodio acabado tras {episode_steps} steps con una recompensa total de {episode_total_reward},',
-              f'una recompensa promedio de {episode_average_reward} y una pérdidas promedio de {episode_average_actor_loss}',
+              f'una recompensa promedio de {episode_average_reward} y unas pérdidas promedio de {episode_average_actor_loss}',
               f'para el actor y {episode_average_critic_loss} para el critic')
 
     actor_filename = generate_filename('MAPPO', 'actor_weights', initial_steps+count_steps, 'weights.h5')
@@ -242,11 +242,11 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
     total_reward = sum(total_rewards)
     average_reward = round(total_reward / count_steps, 2)
-    average_actor_loss = round(np.mean(total_actor_losses), 4)
-    average_critic_loss = round(np.mean(total_critic_losses), 4)
+    average_actor_loss = round(float(np.mean(total_actor_losses)), 4)
+    average_critic_loss = round(float(np.mean(total_critic_losses)), 4)
 
-    print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa',
-          f'y loss promedio de {average_reward} y {average_actor_loss} para el actor y {average_critic_loss} para el critic\n')
+    print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa promedio de {average_reward}',
+          f'y unas pérdidas promedio de {average_actor_loss} para el actor y {average_critic_loss} para el critic\n')
 
     return total_reward, average_reward, average_actor_loss, average_critic_loss
 
