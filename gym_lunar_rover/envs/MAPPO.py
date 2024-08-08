@@ -2,7 +2,6 @@ import numpy as np
 import random
 from gym_lunar_rover.envs.Lunar_Rover_env import *
 from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau
-from collections import deque
 import pickle
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -92,41 +91,40 @@ def critic_model(map_dim, dropout_rate=0, l1_rate=0, l2_rate=0):
     critic = Model(inputs=map_input, outputs=value)
     return critic
 
-class ExperienceReplayBuffer():
-    def __init__(self, buffer_size, batch_size,):
-        self.buffer_size = buffer_size
-        self.batch_size = batch_size
-        self.buffer = deque(maxlen=buffer_size)
+class ExperienceBuffer():
+    def __init__(self, n_agents):
+        self.buffers = [[] for _ in range(n_agents)]
 
-    def add_exp(self, observation, info, action, reward, next_observation, next_info, done, state, next_state, value, prob):
-        self.buffer.append((observation, info, action, reward, next_observation, next_info, done, state, next_state, value, prob))
+    def add_exp(self, agent_id, observation, info, action, reward, done, available_action, state, value, old_prob):
+        self.buffer[agent_id].append((observation, info, action, reward, done, available_action, state, value, old_prob))
     
-    def sample_exp(self):
-        # Ajusta batch_size si es mayor que el número de experiencias disponibles
-        current_size = len(self.buffer)
-        batch_size = min(self.batch_size, current_size)
+    def get_all_exp(self):
+        all_experiences = []
+        for buffer in self.buffers:
+        # Obtiene todas las experiencias en orden para cada agente
+            observations, infos, actions, rewards, dones, available_actions, states, values, old_probs = zip(*buffer)
+            all_experiences.append((np.array(observations), np.array(infos), np.array(actions), np.array(rewards), 
+                                    np.array(dones), np.array(available_actions), np.array(states), np.array(values), np.array(old_probs)))
+        return all_experiences
 
-        batch = random.sample(self.buffer, batch_size)
-        observations, infos, actions, rewards, next_observations, next_infos, dones, states, next_states, values, probs = zip(*batch)
-        return (np.array(observations), np.array(infos), np.array(actions), np.array(rewards), 
-                np.array(next_observations), np.array(next_infos), np.array(dones),
-                np.array(states), np.array(next_states), np.array(values), np.array(probs))
-    
+    def clear(self):
+        self.buffers = [[] for _ in range(len(self.buffers))]
+
     def __len__(self):
-        return len(self.buffer)
+        return sum(len(buffer) for buffer in self.buffers)
 
 class MAPPOAgent:
     def __init__(self, map_shape, observation_shape, info_shape, action_dim, 
-                 buffer_size, batch_size, warm_up_steps, clip_rewards, gamma, lamda,
+                 clip_rewards, gamma, lamda, clip,
                  lr, min_lr, lr_decay_factor, patience, cooldown, 
                  dropout_rate, l1_rate, l2_rate, 
-                 actor_path=None, critic_path=None, buffer_path=None, parameters_path=None):
+                 actor_path=None, critic_path=None, parameters_path=None):
         
         self.action_dim = action_dim
-        self.batch_size = batch_size
-        self.buffer_size = buffer_size
-        self.warm_up_steps = warm_up_steps
         self.clip_rewards = clip_rewards
+
+        # Parámetro de clip para 
+        self.clip = clip
 
         # Parámetro de gamma para la importancia de las rewards futuras
         self.gamma = gamma
@@ -162,30 +160,42 @@ class MAPPOAgent:
         self.reduce_lr_plateau_actor = CustomReduceLROnPlateau(self.act_optimizer, patience=patience, cooldown=cooldown, factor=lr_decay_factor, initial_lr=self.act_lr, min_lr=min_lr)
         self.reduce_lr_plateau_critic = CustomReduceLROnPlateau(self.cri_optimizer, patience=patience, cooldown=cooldown, factor=lr_decay_factor, initial_lr=self.cri_lr, min_lr=min_lr)
 
-        # Iniciamos el Experience Replay Buffer o cargamos el del entrenamiento previo
-        self.replay_buffer = ExperienceReplayBuffer(buffer_size, batch_size)
+        # Iniciamos el Buffer
+        self.buffer = ExperienceBuffer()
 
-        if buffer_path:
-            self.load_buffer(buffer_path)
-
-    def act(self, observation, info):
+    def act(self, observation, state, info, available_actions):
         # Ajustamos las dimensiones de la observación y la info
         observation = np.expand_dims(observation, axis=0)
         observation = np.expand_dims(observation, axis=-1)
         info = np.expand_dims(info, axis=0)
 
-        # Predecimos las probabilidades y muestreamos una según la distribución categórica
+        # Predecimos las probabilidades y con una máscara restringimos las acciones inválidas
         prob = self.actor([observation, info], training=False)
-        dist = tfp.distributions.Categorical(probs=prob.numpy())
+        
+        mask = np.full(prob.shape, -np.inf)
+        mask[0, available_actions] = 0
+        masked_probs = prob + mask
+
+        # Muestreamos una acción según la distribución categórica de las probs
+        dist = tfp.distributions.Categorical(probs=masked_probs)
+
+        # Muestreamos una acción según la distribución categórica
         action = dist.sample()
-        return action
+
+        # Obtenemos la probabilidad de la acción seleccionada
+        action_prob = tf.reduce_sum(dist.prob(action)).numpy()
+
+        # Obtenemos el valor del estado actual según el critic
+        value = self.critic(state)
+
+        return action, action_prob, value
 
     
-    def add_experience(self, observation, info, action, reward, next_observation, next_info, done, state, next_state, value, prob):
+    def add_experience(self, observation, info, action, reward, done, available_action, state, value, prob):
         if self.clip_rewards:
             reward = np.clip(reward, -1.0, 1.0)
 
-        self.replay_buffer.add_exp(observation, info, action, reward, next_observation, next_info, done, state, next_state, value, prob)
+        self.buffer.add_exp(observation, info, action, reward, done, available_action, state, value, prob)
 
     def update_lr(self, loss, act_cri):
         # Disminuimos el lr del critic o actor con la estrategia plateau
@@ -204,14 +214,6 @@ class MAPPOAgent:
         self.actor.load_weights(file_path_act)
         self.critic.load_weights(file_path_cri)
         
-    def save_buffer(self, file_path):
-        with open(file_path, 'wb') as f:
-            pickle.dump(self.replay_buffer.buffer, f)
-
-    def load_buffer(self, file_path):
-        with open(file_path, 'rb') as f:
-            self.replay_buffer.buffer = pickle.load(f)
-
     def save_parameters(self, file_path):
         state = {
             'act_lr': self.act_lr,
@@ -230,19 +232,58 @@ class MAPPOAgent:
         self.update_counter = state['update_counter']
         self.warm_up_steps = state['warm_up_steps']
 
-    def compute_discounted_rewards(self):
-        pass
+    def compute_discounted_rewards(self, rewards, dones, gamma):
+        discounted_rewards = np.zeros_like(rewards)
+        cumulative_reward = 0
+        for t in reversed(range(len(rewards))):
+            if dones[t]:
+                cumulative_reward = 0
+            cumulative_reward = rewards[t] + gamma * cumulative_reward
+            discounted_rewards[t] = cumulative_reward
+        return discounted_rewards
 
-    #  Cálcular las recompensas acumuladas para el actor loss
-    def compute_actor_loss(self, observations, infos, actions, advantages):
+    # Repasar este algoritmo
+    def compute_advantages(self, rewards, values, gamma, lamda):
+        advantages = np.zeros_like(rewards)
+        last_gae_lam = 0
+        # Aqui las rewards se samplean de manera aleatoria por lo que no se 
+        # si tiene sentido recorrerlas hacia atras, además hay rewards de todos
+        # los agentes
+        for t in reversed(range(len(rewards))):
+            if t == len(rewards) - 1:
+                next_value = 0
+            else:
+                next_value = values[t + 1]
+            delta = rewards[t] + gamma * next_value - values[t]
+            advantages[t] = last_gae_lam = delta + gamma * lamda * last_gae_lam
+        return advantages
+    
+    #  Cálcular las recompensas acumuladas para el actor loss teniendo en cuenta solo las acciones válidas y el clip
+    def compute_actor_loss(self, observations, infos, actions, advantages, availables_actions, old_probs):
         probs = self.actor([observations, infos], training=True)
-        dist = tfp.distributions.Categorical(probs=probs) # No se si hace falta .numpy() o no
-        log_probs = dist.log_prob(actions)
-        actor_loss = -tf.reduce_mean(log_probs * advantages)
-        return actor_loss
 
-    def compute_advantages(self):
-        pass
+        # Crear un tensor de índices para las acciones válidas
+        indices = [[i, action] for i, actions in enumerate(availables_actions) for action in actions]
+        indices = tf.constant(indices, dtype=tf.int32)
+
+        # Crear y aplicar la máscara utilizando tf.scatter_nd
+        mask = tf.scatter_nd(indices, tf.ones(len(indices)), probs.shape)
+        masked_probs = probs * mask + (1 - mask) * -tf.float32.max  # Aplicar máscara con -inf para acciones no válidas
+
+        # mask = np.full(probs.shape, -np.inf)
+        # mask[0, availables_actions] = 0
+        # masked_probs = probs + mask
+
+        dist = tfp.distributions.Categorical(probs=masked_probs)
+        log_probs = dist.log_prob(actions)
+        probs_current = tf.exp(log_probs) 
+
+        # Cálculamos el ratio entre las nuevas y las antiguas probs y realizamos el clip
+        ratio = probs_current / old_probs
+        clipped_ratio = tf.clip_by_value(ratio, 1 - self.clip, 1 + self.clip)
+        actor_loss = -tf.reduce_mean(tf.minimum(ratio * advantages, clipped_ratio * advantages))
+
+        return actor_loss
 
     # Cálcular las ventajas con GAE para el critic loss
     def compute_critic_loss(self, states, discounted_rewards):
@@ -251,44 +292,52 @@ class MAPPOAgent:
         return critic_loss
 
     def train(self):
-        # Si aún no hemos terminado los steps de calentamiento no actualizamos la red
-        if self.warm_up_steps > 0:
-            self.warm_up_steps -= 1
-            return 
-        
-        # Muestreo de experiencias
-        observations, infos, actions, rewards, next_observations, next_infos, dones, states, next_states, values, probs = self.replay_buffer.sample_exp()
-        
-        # Calcular las recompensas acumuladas y ventajas
-        discounted_rewards = self.compute_discounted_rewards(rewards, dones, self.gamma)
-        advantages = self.compute_advantages(rewards, values, self.gamma, self.lamda)
 
-        # Normalizar ventajas
-        advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-10)
+        # Obtenemos las experiencias recolectadas con la política actual y limpiamos el buffer
+        all_agents_experiences = self.buffer.get_all_exp()
+        self.buffer.clear()
 
-        # Actualizar el actor y el crítico
-        with tf.GradientTape() as tape_actor, tf.GradientTape() as tape_critic:
-            actor_loss = self.compute_actor_loss(observations, infos, actions, advantages)
-            critic_loss = self.compute_critic_loss(states, discounted_rewards)
+        actor_losses = []
+        critic_losses = []
 
-        # Aplicar gradientes
-        actor_grads = tape_actor.gradient(actor_loss, self.actor.trainable_variables)
-        critic_grads = tape_critic.gradient(critic_loss, self.critic.trainable_variables)
+        for agent_exp in all_agents_experiences:
+            observations, infos, actions, rewards, dones, available_actions, states, values, old_probs = agent_exp
+
+            # Calcular las recompensas acumuladas y ventajas y normalizar estas últimas
+            discounted_rewards = self.compute_discounted_rewards(rewards, dones, self.gamma)
+            advantages = self.compute_advantages(rewards, values, self.gamma, self.lamda)
+            advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-10)
+
+            # Actualizar el actor y el crítico
+            with tf.GradientTape() as tape_actor, tf.GradientTape() as tape_critic:
+                actor_loss = self.compute_actor_loss(observations, infos, actions, advantages, available_actions, old_probs)
+                critic_loss = self.compute_critic_loss(states, discounted_rewards)
+
+            # Aplicar gradientes
+            actor_grads = tape_actor.gradient(actor_loss, self.actor.trainable_variables)
+            critic_grads = tape_critic.gradient(critic_loss, self.critic.trainable_variables)
         
-        self.act_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))
-        self.cri_optimizer.apply_gradients(zip(critic_grads, self.critic.trainable_variables))
+            self.act_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))
+            self.cri_optimizer.apply_gradients(zip(critic_grads, self.critic.trainable_variables))
+
+            actor_losses.append(actor_loss.numpy())
+            critic_losses.append(critic_loss.numpy())
     
+
+        # Promediar las pérdidas de las actualizaciones
+        # de los actores y críticos para cada agente
+        avg_actor_loss = np.mean(actor_losses)
+        avg_critic_loss = np.mean(critic_losses)
 
         # Actualizamos el valor de epsilon y lr
         self.update_counter += 1
-        self.update_lr(actor_loss, "Actor")
-        self.update_lr(critic_loss, "Critic") 
+        self.update_lr(avg_actor_loss, "Actor")
+        self.update_lr(avg_critic_loss, "Critic") 
 
-        return round(actor_loss.numpy(), 4), round(critic_loss.numpy(), 4)
+        return round(avg_actor_loss, 4), round(avg_critic_loss, 4)
         
-    def save_train(self, actor_path, critic_path, buffer_path, state_path):
+    def save_train(self, actor_path, critic_path, state_path):
         self.save_models(actor_path, critic_path)
-        self.save_buffer(buffer_path)
         self.save_parameters(state_path)
 
 # Agente para la inferencia tras finalizar el entrenamiento
@@ -299,13 +348,18 @@ class InferenceMAPPOAgent:
         self.actor.compile(loss='mse', optimizer='adam')
         self.actor.load_weights(model_path)
 
-    def act(self, observation, info):
+    def act(self, observation, info, available_actions):
         # Ajustamos las dimensiones de la observación y la info
         observation = np.expand_dims(observation, axis=0)
         observation = np.expand_dims(observation, axis=-1)
         info = np.expand_dims(info, axis=0)
         
-        # Predecimos las probabilidades y cogemos la mejor
+        # Predecimos las probabilidades y usamos una máscara para evitar las inválidas
         prob = self.actor([observation, info], training=False)
-        best_action = np.argmax(prob.numpy())
-        return best_action
+
+        mask = np.full(prob.shape, 0)
+        mask[0, available_actions] = 0
+        masked_probs = prob + mask
+
+        # Cogemos la mejor acción dentro de las válidas
+        return np.argmax(masked_probs)
