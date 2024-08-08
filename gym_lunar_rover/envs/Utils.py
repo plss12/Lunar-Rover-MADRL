@@ -1,7 +1,8 @@
 import os
 import csv
 import numpy as np
-from gym_lunar_rover.envs.Lunar_Rover_env import RoverObsObjects, LunarObjects, RoversObjects
+import tensorflow as tf
+from gym_lunar_rover.envs.Lunar_Rover_env import RoverObsObjects, LunarObjects
 
 # Función para generar un nombre de archivo único
 def generate_filename(algorithm, base_name, steps, extension):
@@ -66,12 +67,11 @@ def normalize_obs(obs):
 
 # Normalizamos el mapa en el rango 0 a 1 para la entrada del 
 # Critic en el algoritmo MAPPO
-def normalize_map(map):
+def normalize_map(map, objs):
     min = LunarObjects.FLOOR.value
-    objs = RoversObjects.get_agents_mines()
-    max = max(list(objs.keys()) + list(objs.values()))
+    max_n = max(list(objs.keys()) + list(objs.values()))
 
-    map = (map - min) / (max - min)
+    map = (map - min) / (max_n - min)
 
     return map
 
@@ -110,3 +110,8 @@ class CustomReduceLROnPlateau:
         new_lr = max(self.lr * self.factor, self.min_lr)
         self.optimizer.learning_rate.assign(new_lr)
         self.lr = new_lr
+
+def normalize_valid_probs(probs, mask):
+    valid_probs_sum = tf.reduce_sum(probs * mask, axis=-1, keepdims=True)
+    normalized_probs = (probs * mask) / valid_probs_sum
+    return normalized_probs

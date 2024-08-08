@@ -92,9 +92,7 @@ class ExperienceReplayBuffer():
         batch_size = min(self.batch_size, current_size)
 
         batch = random.sample(self.buffer, batch_size)
-        observations, infos, actions, rewards, next_observations, next_infos, dones, next_availables_actions = zip(*batch)
-        return (np.array(observations), np.array(infos), np.array(actions), np.array(rewards), 
-                np.array(next_observations), np.array(next_infos), np.array(dones), next_availables_actions)
+        return zip(*batch)
     
     def __len__(self):
         return len(self.buffer)
@@ -143,6 +141,9 @@ class DoubleDuelingDQNAgent:
         # Si no hay pesos guardados se crean los modelos
         else:
             self.new_model()
+
+        # self.primary_network.summary()
+        # self.target_network.summary()
         
         # Callback para la reducción del lr si el loss no mejora
         self.reduce_lr_plateau = CustomReduceLROnPlateau(optimizer=self.optimizer, patience=patience, cooldown=cooldown, factor=lr_decay_factor, initial_lr=self.lr, min_lr=min_lr)
