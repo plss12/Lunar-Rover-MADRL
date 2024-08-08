@@ -25,13 +25,13 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
     max_lr = 1e-2
     min_lr = 1e-5
-    lr_decay_factor = 0.7
+    lr_decay_factor = 0.9
     patiente = 50
     cooldown = 20
 
     max_epsilon = 1
     min_epsilon = 0.4
-    epsilon_decay = 1e-5
+    epsilon_decay = 1e-3
 
     dropout_rate = 0.2
     l1_rate = 0.0
@@ -46,7 +46,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
                                 model_path, buffer_path, parameters_path)
 
-    max_iterations = 5000
+    max_episodes_steps = 4000
     count_steps = 0
 
     total_rewards = []
@@ -55,14 +55,14 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     while count_steps < total_steps:
         observations = list(env.reset()[0])
         dones = [False]*n_agents
-        iteration = 0
         episode_rewards = []
         episode_losses = []
+        episode_steps = 0
 
         # Comprobamos que haya Rovers sin terminar y se limita el número de iteraciones
         # para no sobreentrenar situaciones inusuales
-        while not all(dones) and iteration < max_iterations:
-            iteration +=1
+        while not all(dones) and episode_steps < max_episodes_steps:
+        
             for i, rover in enumerate(env.unwrapped.rovers):
                 # Si el Rover ha terminado saltamos al siguiente
                 if rover.done:
@@ -100,11 +100,12 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                     episode_losses.append(loss)
 
                 count_steps +=1
+                episode_steps += 1
 
-                if count_steps >= total_steps:
+                if count_steps >= total_steps or episode_steps >= max_episodes_steps:
                     break
 
-            if count_steps >= total_steps:
+            if count_steps >= total_steps or episode_steps >= max_episodes_steps:
                 break
 
         episode_total_reward = sum(episode_rewards)
@@ -114,7 +115,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
         total_rewards.extend(episode_rewards)
         total_losses.extend(episode_losses)
 
-        print(f'Episodio acabado en la iteración {iteration} con una recompensa total de {episode_total_reward},',
+        print(f'Episodio acabado tras {episode_steps} steps con una recompensa total de {episode_total_reward},',
               f'una recompensa promedio de {episode_average_reward} y una pérdida promedio de {episode_average_loss}')
 
     model_filename = generate_filename('DDDQL', 'model_weights', initial_steps+count_steps, 'weights.h5')
