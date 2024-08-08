@@ -170,6 +170,9 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
         episode_critic_losses = []
         episode_steps = 0
 
+        norm_init_map = normalize_map(env.unwrapped.initial_grid, env.unwrapped.rovers_mines_ids)
+        agent.add_init_state(norm_init_map)
+        
         # Comprobamos que haya Rovers sin terminar y se limita el número de steps
         # por episodio para no sobreentrenar situaciones inusuales
         while not all(dones) and episode_steps < max_episode_steps and count_steps < total_steps:
@@ -221,7 +224,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
             episode_actor_losses.append(actor_loss)
         if critic_loss:
             episode_critic_losses.append(critic_loss)
-
+        
         episode_total_reward = sum(episode_rewards)
         episode_average_reward = round(float(np.mean(episode_rewards)),2)
         episode_average_actor_loss = round(float(np.mean(episode_actor_losses)), 4) if episode_actor_losses else 0

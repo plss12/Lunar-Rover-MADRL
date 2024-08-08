@@ -75,6 +75,11 @@ def normalize_map(map, objs):
 
     return map
 
+# Dados dos maps se combinan ambos, como si fueran dos canales de una imagen,
+# para la entrada del critic del MAPPO
+def combine_maps(agent_map, strategic_map):
+    return np.stack([agent_map, strategic_map], axis=-1)
+
 # Estrategia de reducción de lr si no mejora el loss durante el train
 class CustomReduceLROnPlateau:
     def __init__(self, optimizer, patience, cooldown, factor, initial_lr, min_lr):

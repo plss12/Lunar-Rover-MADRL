@@ -158,11 +158,7 @@ class Rover:
 
                 # Al terminar el Rover se debe borrar del mapa para que los demás
                 # Rovers puedan entrar en el Blender sin que esté ocupada la posición
-                if (self.env.initial_grid[x, y] in self.env.rovers_mines_ids.keys()):
-                    self.env.grid[x, y] = LunarObjects.FLOOR.value      
-
-                else:
-                    self.env.grid[x, y] = self.env.initial_grid[x, y]
+                self.env.grid[x, y] = self.env.initial_grid[x, y]
 
                 self.position = (new_x, new_y)
                 
@@ -188,14 +184,7 @@ class Rover:
 
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa
-
-        # Si inicialmente en esa posición había un agente
-        # en este caso si se coloca un espacio vacio en el mapa
-        if (self.env.initial_grid[x, y] in self.env.rovers_mines_ids.keys()):
-            self.env.grid[x, y] = LunarObjects.FLOOR.value      
-
-        else:
-            self.env.grid[x, y] = self.env.initial_grid[x, y]
+        self.env.grid[x, y] = self.env.initial_grid[x, y]
 
         self.env.grid[new_x, new_y] = self.agent_id
         self.position = (new_x, new_y)
@@ -356,7 +345,9 @@ class LunarEnv(gym.Env):
         self._place_obstacles_goal()
         self._place_rovers_mines()
 
+        # Hacemos una copia del estado inicial del mapa sin los agentes
         self.initial_grid = np.copy(self.grid)
+        self.initial_grid[np.isin(self.initial_grid, list(self.rovers_mines_ids.keys()))] = 0
 
         # Definir colores para los rovers, minas y metas
         self.agent_colors = {}
