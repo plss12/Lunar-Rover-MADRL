@@ -217,8 +217,7 @@ class MAPPOAgent:
         state = {
             'act_lr': self.act_lr,
             'cri_lr': self.cri_lr,
-            'update_counter': self.update_counter,
-            'warm_up_steps': self.warm_up_steps
+            'update_counter': self.update_counter
         }
         with open(file_path, 'wb') as f:
             pickle.dump(state, f)
@@ -229,7 +228,6 @@ class MAPPOAgent:
         self.act_lr = state['act_lr']
         self.cri_lr = state['cri_lr']
         self.update_counter = state['update_counter']
-        self.warm_up_steps = state['warm_up_steps']
 
     def compute_discounted_rewards(self, rewards, dones, gamma):
         discounted_rewards = np.zeros_like(rewards)

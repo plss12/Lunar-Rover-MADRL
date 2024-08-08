@@ -46,7 +46,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
                                 model_path, buffer_path, parameters_path)
 
-    max_episodes_steps = 4000
+    max_episode_steps = 4000
     count_steps = 0
 
     total_rewards = []
@@ -59,9 +59,9 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
         episode_losses = []
         episode_steps = 0
 
-        # Comprobamos que haya Rovers sin terminar y se limita el número de iteraciones
-        # para no sobreentrenar situaciones inusuales
-        while not all(dones) and episode_steps < max_episodes_steps:
+        # Comprobamos que haya Rovers sin terminar y se limita el número de steps
+        # por episodio para no sobreentrenar situaciones inusuales
+        while not all(dones) and episode_steps < max_episode_steps:
         
             for i, rover in enumerate(env.unwrapped.rovers):
                 # Si el Rover ha terminado saltamos al siguiente
@@ -102,10 +102,10 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 count_steps +=1
                 episode_steps += 1
 
-                if count_steps >= total_steps or episode_steps >= max_episodes_steps:
+                if count_steps >= total_steps or episode_steps >= max_episode_steps:
                     break
 
-            if count_steps >= total_steps or episode_steps >= max_episodes_steps:
+            if count_steps >= total_steps or episode_steps >= max_episode_steps:
                 break
 
         episode_total_reward = sum(episode_rewards)
@@ -157,8 +157,8 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                        dropout_rate, l1_rate, l2_rate, 
                        actor_path, critic_path, parameters_path)
     
-    max_iterations = 5000
-    train_freq = 100 # 2000
+    max_episode_steps = 4000
+    train_freq = 1000
     count_steps = 0
 
     total_rewards = []
@@ -168,13 +168,14 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     while count_steps < total_steps:
         observations = list(env.reset()[0])
         dones = [False]*n_agents
-        iteration = 0
         episode_rewards = []
         episode_actor_losses = []
         episode_critic_losses = []
+        episode_steps = 0
 
-        while not all(dones) and iteration < max_iterations:
-            iteration += 1
+        # Comprobamos que haya Rovers sin terminar y se limita el número de steps
+        # por episodio para no sobreentrenar situaciones inusuales
+        while not all(dones) and episode_steps < max_episode_steps:
             for i, rover in enumerate(env.unwrapped.rovers):
                 if rover.done:
                     continue
@@ -203,7 +204,8 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
                 episode_rewards.append(reward)
 
-                count_steps +=1
+                count_steps += 1
+                episode_steps += 1
                 
                 if count_steps % train_freq == 0:
                     # Entrenamos si ya hemos alcanzado el número de steps máximo
@@ -213,10 +215,10 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                     if critic_loss:
                         episode_critic_losses.append(critic_loss)
 
-                if count_steps >= total_steps:
+                if count_steps >= total_steps or episode_steps >= max_episode_steps:
                     break
 
-            if count_steps >= total_steps:
+            if count_steps >= total_steps or episode_steps >= max_episode_steps:
                 break
 
         episode_total_reward = sum(episode_rewards)
@@ -228,7 +230,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
         total_actor_losses.extend(episode_actor_losses)
         total_critic_losses.extend(episode_critic_losses)
 
-        print(f'Episodio acabado en la iteración {iteration} con una recompensa total de {episode_total_reward},',
+        print(f'Episodio acabado tras {episode_steps} steps con una recompensa total de {episode_total_reward},',
               f'una recompensa promedio de {episode_average_reward} y una pérdidas promedio de {episode_average_actor_loss}',
               f'para el actor y {episode_average_critic_loss} para el critic')
 
@@ -328,7 +330,7 @@ def main():
     initial_steps = 0
     # Steps totales que queremos alcanzar
     total_train_steps = 1000000
-    # Algoritmo que queremos usar (DDDQL o PPO)
+    # Algoritmo que queremos usar (DDDQL o MAPPO)
     # algorithm = 'DDDQL'
     algorithm = 'MAPPO'
 
