@@ -61,7 +61,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
         # Comprobamos que haya Rovers sin terminar y se limita el número de steps
         # por episodio para no sobreentrenar situaciones inusuales
-        while not all(dones) and episode_steps < max_episode_steps:
+        while not all(dones) and episode_steps < max_episode_steps and count_steps < total_steps:
         
             for i, rover in enumerate(env.unwrapped.rovers):
                 # Si el Rover ha terminado saltamos al siguiente
@@ -104,9 +104,6 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
                 if count_steps >= total_steps or episode_steps >= max_episode_steps:
                     break
-
-            if count_steps >= total_steps or episode_steps >= max_episode_steps:
-                break
 
         episode_total_reward = sum(episode_rewards)
         episode_average_reward = round(float(np.mean(episode_rewards)),2)
@@ -175,7 +172,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
         # Comprobamos que haya Rovers sin terminar y se limita el número de steps
         # por episodio para no sobreentrenar situaciones inusuales
-        while not all(dones) and episode_steps < max_episode_steps:
+        while not all(dones) and episode_steps < max_episode_steps and count_steps < total_steps:
             for i, rover in enumerate(env.unwrapped.rovers):
                 if rover.done:
                     continue
@@ -217,9 +214,13 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
                 if count_steps >= total_steps or episode_steps >= max_episode_steps:
                     break
-
-            if count_steps >= total_steps or episode_steps >= max_episode_steps:
-                break
+        
+        # Entrenamos si vamos a comenzar un nuevo episodio
+        actor_loss, critic_loss = agent.train()
+        if actor_loss:
+            episode_actor_losses.append(actor_loss)
+        if critic_loss:
+            episode_critic_losses.append(critic_loss)
 
         episode_total_reward = sum(episode_rewards)
         episode_average_reward = round(float(np.mean(episode_rewards)),2)
