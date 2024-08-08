@@ -20,23 +20,23 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     buffer_size = 100000
     batch_size = 64
 
-    gamma = 0.95
+    gamma = 0.99
 
-    max_lr = 1e-3
+    max_lr = 1e-2
     min_lr = 1e-5
-    lr_decay_factor = 0.8
-    patiente = 25
-    cooldown = 10
+    lr_decay_factor = 0.7
+    patiente = 50
+    cooldown = 20
 
     max_epsilon = 1
     min_epsilon = 0.4
     epsilon_decay = 1e-5
 
-    dropout_rate = 0.3
-    l1_rate = 0
-    l2_rate = 0.05
+    dropout_rate = 0.2
+    l1_rate = 0.0
+    l2_rate = 0.1
 
-    update_target_freq = 500
+    update_target_freq = 1000
     warm_up_steps = 100
     clip_rewards = False
 
@@ -93,7 +93,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
                 observations[i] = next_observation
                 dones[i] = done
-
+                
                 episode_rewards.append(reward)
                 if loss:
                     episode_losses.append(loss)
