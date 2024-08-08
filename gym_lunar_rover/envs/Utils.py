@@ -11,14 +11,14 @@ def generate_filename(algorithm, base_name, steps, extension):
 def check_file_exists(filename):
     return os.path.exists(filename)
 
-# Función para escribir en un csv la evolución de las métricas del entrenamiento
-def csv_save_train(algorithm, initial_steps, count_steps, total_reward, average_reward, average_loss):
-    file_path = 'training_metrics.csv'
+# Función para escribir en un csv la evolución de las métricas del entrenamiento de dddql
+def csv_save_train_dddql(algorithm, initial_steps, count_steps, total_reward, average_reward, average_loss):
+    file_path = 'training_metrics_dddql.csv'
     fieldnames = ['algorithm', 'initial_steps', 'count_steps', 'total_reward', 'average_reward', 'average_loss']
     
     if not os.path.isfile(file_path):
         # Inicializar archivo CSV si no existe para guardar métricas
-        with open('training_metrics.csv', mode='w', newline='') as csv_file:
+        with open('training_metrics_dddql.csv', mode='w', newline='') as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 
@@ -26,6 +26,22 @@ def csv_save_train(algorithm, initial_steps, count_steps, total_reward, average_
     with open(file_path, mode='a', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'count_steps': count_steps, 'total_reward': total_reward, 'average_reward': average_reward,'average_loss': average_loss})
+
+# Función para escribir en un csv la evolución de las métricas del entrenamiento de mappo
+def csv_save_train_mappo(algorithm, initial_steps, count_steps, total_reward, average_reward, average_actor_loss, average_critic_loss):
+    file_path = 'training_metrics_mappo.csv'
+    fieldnames = ['algorithm', 'initial_steps', 'count_steps', 'total_reward', 'average_reward', 'average_actor_loss', 'average_critic_loss']
+    
+    if not os.path.isfile(file_path):
+        # Inicializar archivo CSV si no existe para guardar métricas
+        with open('training_metrics_mappo.csv', mode='w', newline='') as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+
+    # Si ya existe el archivo solo se escribe una nueva fila para no sobrescribir nada
+    with open(file_path, mode='a', newline='') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'count_steps': count_steps, 'total_reward': total_reward, 'average_reward': average_reward,'average_actor_loss': average_actor_loss, 'average_critic_loss': average_critic_loss})
 
 def normalize_pos(positions, grid_size):
     positions = np.array(positions)
