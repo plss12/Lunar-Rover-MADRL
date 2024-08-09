@@ -116,6 +116,8 @@ class DoubleDuelingDQNAgent:
         # Cargamos los parámetros si existe un entrenamiento previo
         if parameters_path:
             self.load_parameters(parameters_path)
+            if self.lr < min_lr:
+                self.lr = min_lr
 
         self.primary_network = dddqn_model(observation_shape, info_shape, action_dim, dropout_rate, l1_rate, l2_rate)
         self.target_network = dddqn_model(observation_shape, info_shape, action_dim, dropout_rate, l1_rate, l2_rate)
