@@ -23,19 +23,19 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
     gamma = 0.99
 
-    max_lr = 1e-3
+    max_lr = 1e-2
     min_lr = 1e-5
     lr_decay_factor = 0.9
-    patiente = 50
-    cooldown = 20
+    patiente = 100
+    cooldown = 50
 
     max_epsilon = 1
     min_epsilon = 0.4
     epsilon_decay = 1e-4
 
-    dropout_rate = 0.2
+    dropout_rate = 0.4
     l1_rate = 0.0
-    l2_rate = 0.05
+    l2_rate = 0.1
 
     update_target_freq = 1000
     warm_up_steps = 100
@@ -87,6 +87,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 next_info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
                 next_info = np.append(next_info, int(rover.mined))
                 next_availables_actions = rover.get_movements()
+                # Normalizamos la recompensa para reducir la magnitud de estas
                 norm_reward = normalize_reward(reward)
                 agent.add_experience(norm_observation, info, action, norm_reward, norm_next_observation, next_info, done, next_availables_actions)
                 
@@ -134,13 +135,13 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, parameters_path=None):
     # Hiperparámetros
     gamma = 0.95
-    lamda = 0.9
+    lamda = 0.5
     clip = 0.2
 
     max_lr = 1e-3
-    min_lr = 1e-6
-    lr_decay_factor = 0.8
-    patiente = 25
+    min_lr = 1e-5
+    lr_decay_factor = 0.5
+    patiente = 20
     cooldown = 10
 
     dropout_rate = 0.2
@@ -155,7 +156,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                        dropout_rate, l1_rate, l2_rate, 
                        actor_path, critic_path, parameters_path)
     
-    max_episode_steps = 4000
+    max_episode_steps = 5000
     train_freq = 1000
     count_steps = 0
 
@@ -189,16 +190,16 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
                 info = np.append(info, int(rover.mined))
                 # Normalizamos el mapa en el rango 0-1
-                norm_state = normalize_map(env.unwrapped.grid, env.unwrapped.rovers_mines_ids)
-
+                norm_state = normalize_map(env.unwrapped.grid, env.unwrapped.rovers_mines_ids)                
                 action, act_prob, state_value = agent.act(norm_observation, norm_state, info, available_actions)
                 step_act = rover.step(action)
 
                 # Una vez realizada la acción obtenemos el nuevo estado para 
                 # añadir la experiencia completa al buffer
                 next_observation, reward, done = step_act[0:3]
-
-                agent.add_experience(i, norm_observation, info, action, reward, done, available_actions, norm_state, state_value, act_prob)
+                # Normalizamos la recompensa para reducir la magnitud de estas
+                norm_reward = normalize_reward(reward)
+                agent.add_experience(i, norm_observation, info, action, norm_reward, done, available_actions, norm_state, state_value, act_prob)
 
                 observations[i] = next_observation
                 dones[i] = done
@@ -336,8 +337,8 @@ def main():
     # Steps totales que queremos alcanzar
     total_train_steps = 1000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
-    algorithm = 'DDDQL'
-    # algorithm = 'MAPPO'
+    # algorithm = 'DDDQL'
+    algorithm = 'MAPPO'
 
     train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm)
 

@@ -39,30 +39,34 @@ class RoverInfoWindow(tk.Tk):
             rover_frame = ttk.Frame(self.second_frame, padding="10")
             rover_frame.pack(fill=tk.X, pady=5)
             
+            position_label = tk.Label(rover_frame, font=("Helvetica", 12))
+
             name_label = tk.Label(rover_frame, font=("Helvetica", 12))
             name_label.grid(row=0, column=0, sticky="w")
             
-            reward_label = tk.Label(rover_frame, font=("Helvetica", 12))
-            reward_label.grid(row=1, column=0, sticky="w")
+            total_reward_label = tk.Label(rover_frame, font=("Helvetica", 12))
+            total_reward_label.grid(row=1, column=0, sticky="w")
             
-            position_label = tk.Label(rover_frame, font=("Helvetica", 12))
+            last_reward_label = tk.Label(rover_frame, font=("Helvetica", 12))
+            last_reward_label.grid(row=1, column=1, sticky="w")
 
             mine_pos_label = tk.Label(rover_frame, font=("Helvetica", 12))
             mine_pos_label.grid(row=2, column=0, sticky="w")
 
             blender_pos_label = tk.Label(rover_frame, font=("Helvetica", 12))
-            blender_pos_label.grid(row=3, column=0, sticky="w")
+            blender_pos_label.grid(row=2, column=1, sticky="w")
             
             mined_label = tk.Label(rover_frame, font=("Helvetica", 12))
-            mined_label.grid(row=4, column=0, sticky="w")
+            mined_label.grid(row=3, column=0, sticky="w")
 
             done_label = tk.Label(rover_frame, font=("Helvetica", 12))
-            done_label.grid(row=5, column=0, sticky="w")
+            done_label.grid(row=3, column=1, sticky="w")
             
             self.rover_frames.append({
                 "frame": rover_frame,
                 "name": name_label,
-                "reward": reward_label,
+                "total_reward": total_reward_label,
+                "last_reward": last_reward_label,
                 "mine_pos":mine_pos_label,
                 "blender_pos":blender_pos_label,
                 "position": position_label,
@@ -85,7 +89,8 @@ class RoverInfoWindow(tk.Tk):
 
             rover_frame = self.rover_frames[i]
             rover_frame["name"].config(text=f"Rover {i+1} {pos}:")
-            rover_frame["reward"].config(text=f"  Reward: {rover.total_reward}")
+            rover_frame["total_reward"].config(text=f"  Total Reward: {rover.total_reward}")
+            rover_frame["last_reward"].config(text=f"  Last Reward: {rover.last_reward}")
             rover_frame["mine_pos"].config(text=f"  Mine Position: {rover.mine_pos}")
             rover_frame["blender_pos"].config(text=f"  Blender Position: {rover.blender_pos}")
             rover_frame["mined"].config(text=f"  Mined: {rover.mined}")

@@ -2,7 +2,74 @@ import os
 import csv
 import numpy as np
 import tensorflow as tf
-from gym_lunar_rover.envs.Lunar_Rover_env import RoverObsObjects, LunarObjects
+from enum import Enum
+
+# Acciones posibles para el Lunar Rover, centradas en el movimiento
+class RoverAction(Enum):
+    WAIT = 0
+    UP = 1
+    DOWN = 2
+    LEFT = 3
+    RIGHT = 4
+
+# Recompensas según situación
+class RoverRewards(Enum):
+    INVALID = -10
+    CRASH = -10
+    BIG_OBSTACLE = -8
+    SMALL_OBSTACLE = -3
+    WAIT = -2
+    MOVE = -1
+    NEAR_LOCATION = +20
+    NEW_LOCATION = +50
+    MINE = +100
+    BLENDER = +500
+
+# Representación de los objetos en el entorno lunar
+class LunarObjects(Enum):
+    FLOOR = 0
+    SMALL_OBSTACLE = 1
+    BIG_OBSTACLE = 2
+    BLENDER = 3
+
+# Representación de los Rovers y sus localizaciones asignadas en el entorno lunar
+class RoversObjects:
+    def __init__(self, num_agents):
+        self.num_agents = num_agents
+        self.objects = {}
+
+        self._add_rovers_mines()
+    
+    # Añadimos los rovers y sus minas dinamicamente según el número de agentes
+    def _add_rovers_mines(self):
+        max_value = max(item.value for item in LunarObjects)
+        for i in range(1, self.num_agents + 1):
+
+            self.objects[f'ROVER_{i}'] = max_value + i * 2 - 1
+            self.objects[f'MINE_{i}'] = max_value + i * 2
+
+    # Método para obtener el número que representa a los agentes y sus minas
+    def get_agents_mines(self):
+        agents_mines = {}
+        for i in range(1, self.num_agents + 1):
+            rover_name = f'ROVER_{i}'
+            mine_name = f'MINE_{i}'
+            
+            agents_mines[self.objects[rover_name]] = self.objects[mine_name]
+        
+        return agents_mines
+
+# Estos son los valores que cada Rover verá en sus observaciones
+class RoverObsObjects(Enum):
+    OUT = -1
+    FLOOR = 0
+    SMALL_OBSTACLE = 1
+    BIG_OBSTACLE = 2
+    BLENDER = 3
+    ROVER = 4
+    MINE = 5
+    OTHER_ROVER = 6
+    OTHER_MINE = 7
 
 # Función para generar un nombre de archivo único
 def generate_filename(algorithm, base_name, steps, extension):
@@ -44,6 +111,10 @@ def csv_save_train_mappo(algorithm, initial_steps, count_steps, total_reward, av
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'count_steps': count_steps, 'total_reward': total_reward, 'average_reward': average_reward,'average_actor_loss': average_actor_loss, 'average_critic_loss': average_critic_loss})
 
+# Función para oscurecer un color
+def darken_color(color, factor=0.7):
+    return tuple(int(c * factor) for c in color)
+
 def normalize_pos(positions, grid_size):
     positions = np.array(positions)
 
@@ -80,8 +151,10 @@ def normalize_reward(reward):
 
 # Dados dos maps se combinan ambos, como si fueran dos canales de una imagen,
 # para la entrada del critic del MAPPO
-def combine_maps(agent_map, strategic_map):
-    return np.stack([agent_map, strategic_map], axis=-1)
+def combine_maps(agent_map, init_map):
+    return tf.concat([agent_map, init_map], axis=-1)
+
+    # return np.stack([agent_map, init_map], axis=-1)
 
 # Estrategia de reducción de lr si no mejora el loss durante el train
 class CustomReduceLROnPlateau:
@@ -123,3 +196,7 @@ def normalize_valid_probs(probs, mask):
     valid_probs_sum = tf.reduce_sum(probs * mask, axis=-1, keepdims=True)
     normalized_probs = (probs * mask) / valid_probs_sum
     return normalized_probs
+
+# Calcula la distancia euclidiana entre dos puntos (x, y)
+def calculate_distance(pos1, pos2):
+    return np.sqrt((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2)
