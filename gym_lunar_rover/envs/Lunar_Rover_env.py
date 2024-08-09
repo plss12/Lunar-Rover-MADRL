@@ -11,6 +11,18 @@ class RoverAction(Enum):
     LEFT = 3
     RIGHT = 4
 
+# Recompensas según situación
+class RoverRewards(Enum):
+    INVALID = -10
+    CRASH = -10
+    BIG_OBSTACLE = -8
+    SMALL_OBSTACLE = -3
+    WAIT = -2
+    MOVE = -1
+    NEW_LOCATION = +20
+    MINE = +100
+    BLENDER = +500
+
 # Representación de los objetos en el entorno lunar
 class LunarObjects(Enum):
     FLOOR = 0
@@ -88,7 +100,7 @@ class Rover:
         elif action not in self.get_movements():
             obs, obs_rew = self.get_observation()
             info = {}
-            reward += -10
+            reward += RoverRewards.INVALID.value
             self.total_reward += reward
             self.env.total_reward += reward
             return obs, reward, self.done, info
@@ -110,7 +122,7 @@ class Rover:
         # comprobaciones extras por no haber movimiento
         elif action == 0:
             # Penalización por gasto de energía en descanso y no explorar
-            reward += -2
+            reward += RoverRewards.WAIT.value
             self.total_reward += reward
             self.env.total_reward += reward
             obs, obs_rew = self.get_observation()
@@ -127,17 +139,17 @@ class Rover:
         if new_pos != 0:
             # Recompensa negativa por obstáculo pequeño
             if new_pos == LunarObjects.SMALL_OBSTACLE.value:
-                reward += -3
+                reward += RoverRewards.SMALL_OBSTACLE.value
 
             # Recompensa negativa por obstáculo grande
             elif new_pos == LunarObjects.BIG_OBSTACLE.value:
-                reward += -8
+                reward += RoverRewards.BIG_OBSTACLE.value
 
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
             # dos agentes en una misma posición
             elif new_pos in self.env.rovers_mines_ids.keys():
-                reward += -10
+                reward += RoverRewards.CRASH.value
                 self.total_reward += reward
                 self.env.total_reward += reward
                 obs, obs_rew = self.get_observation()
@@ -149,11 +161,11 @@ class Rover:
                 return obs, reward, self.done, info
             # Recompensa positiva si ha llegado por primera vez a la mina
             elif new_pos == self.mine_id and self.mined == False: 
-                reward += 100
+                reward += RoverRewards.MINE.value
                 self.mined = True
             # Recompensa positiva si ha llegado al punto de recogida tras minar
             elif new_pos == LunarObjects.BLENDER.value and self.mined == True:
-                reward += 1000
+                reward += RoverRewards.BLENDER.value
                 self.done = True
 
                 # Al terminar el Rover se debe borrar del mapa para que los demás
@@ -176,11 +188,11 @@ class Rover:
             # Recompensa negativa por moverse sobre cualquier otra posición 
             # con objeto sin recompensa especial
             else:
-                reward += -1
+                reward += RoverRewards.MOVE.value
 
         # Recompensa negativa por el gasto de energía en el movimiento a un espacio vacio
         else:
-            reward += -1
+            reward += RoverRewards.MOVE.value
 
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa
@@ -231,13 +243,13 @@ class Rover:
             mine_position = np.argwhere(observation == self.mine_id)
             if len(mine_position) > 0:
                 self.mine_pos = tuple(np.argwhere(self.env.grid == self.mine_id)[0])
-                reward += 50
+                reward += RoverRewards.NEW_LOCATION.value
 
         if self.blender_pos == (-1,-1):
             blender_position = np.argwhere(observation == RoverObsObjects.BLENDER.value)
             if len(blender_position) > 0:
                 self.blender_pos = tuple(np.argwhere(self.env.grid == RoverObsObjects.BLENDER.value)[0])
-                reward += 50
+                reward += RoverRewards.NEW_LOCATION.value
 
         # Se realiza una normalización a la observación para que las observaciones de todos los Rovers
         # tengan el mismo formato. Para un Rover todos los demás Rovers y minas son iguales sin distinción,
@@ -336,6 +348,8 @@ class LunarEnv(gym.Env):
             self.clock = pygame.time.Clock()
 
     def reset(self, seed=None, options=None):
+        
+        self.total_reward = 0
 
         # Inicializamos el mapa y creamos los agentes y sus objetivos
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
