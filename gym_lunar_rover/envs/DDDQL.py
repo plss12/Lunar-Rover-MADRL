@@ -211,10 +211,16 @@ class DoubleDuelingDQNAgent:
     def save_buffer(self, file_path):
         with open(file_path, 'wb') as f:
             pickle.dump(self.replay_buffer.buffer, f)
-
+            
     def load_buffer(self, file_path):
         with open(file_path, 'rb') as f:
-            self.replay_buffer.buffer = pickle.load(f)
+            loaded_buffer = pickle.load(f)
+            
+            # Limita el buffer si se ha reducido su tamaño tras el entreno previo
+            if len(loaded_buffer) > self.buffer_size:
+                loaded_buffer = deque(list(loaded_buffer)[-self.buffer_size:], maxlen=self.buffer_size)
+            
+            self.replay_buffer.buffer = loaded_buffer
 
     def save_parameters(self, file_path):
         state = {
