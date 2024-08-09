@@ -75,6 +75,9 @@ def normalize_map(map, objs):
 
     return map
 
+def normalize_reward(reward): 
+    return np.sign(reward) * np.log(1 + abs(reward))
+
 # Dados dos maps se combinan ambos, como si fueran dos canales de una imagen,
 # para la entrada del critic del MAPPO
 def combine_maps(agent_map, strategic_map):
