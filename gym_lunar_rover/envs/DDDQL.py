@@ -33,8 +33,6 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
     # Procesamiento de la observación
     obs_x = Conv2D(16, (3, 3), activation='relu', kernel_regularizer=reg)(obs_input)
     obs_x = BatchNormalization()(obs_x)
-    obs_x = Conv2D(32, (3, 3), activation='relu', kernel_regularizer=reg)(obs_x)
-    obs_x = BatchNormalization()(obs_x)
     obs_x = Flatten()(obs_x)
     obs_x = Dropout(dropout_rate)(obs_x) 
 
@@ -44,25 +42,17 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
     # Procesamiento de la posición
     info_x = Dense(16, activation='relu', kernel_regularizer=reg)(info_input)
     info_x = BatchNormalization()(info_x)
-    info_x = Dense(32, activation='relu', kernel_regularizer=reg)(info_x)
-    info_x = BatchNormalization()(info_x)
     info_x = Dropout(dropout_rate)(info_x)
 
-    # Concatenar la salida de la observación y la posición
+    # Concatenar la salida de la observación y la posición y aplicar una capa densa
     combined = Concatenate()([obs_x, info_x])
-
-    # Capas densas después de la concatenación
-    combined_x = Dense(32, activation='relu', kernel_regularizer=reg)(combined)
-    combined_x = BatchNormalization()(combined_x)
-    combined_x = Dropout(dropout_rate)(combined_x) 
+    combined = Dense(32, activation='relu', kernel_regularizer=reg)(combined)
 
     # Capa de valor
-    value = Dense(32, activation='relu', kernel_regularizer=reg)(combined_x)
-    value = Dense(1)(value)
+    value = Dense(1)(combined)
 
     # Capa de ventaja
-    advantage = Dense(32, activation='relu', kernel_regularizer=reg)(combined_x)
-    advantage = Dense(output_dim)(advantage)
+    advantage = Dense(output_dim)(combined)
 
     # Capa ReduceMeanLayer para el cálculo de Q
     mean_advantage = ReduceMeanLayer()(advantage)
@@ -267,6 +257,7 @@ class DoubleDuelingDQNAgent:
             q_values = self.primary_network([observations, infos], training=True)
 
             # Obtenemos los q-values del modelo objetivo para el siguiente estado
+            # Desactivamos regularización para contar con la red completa sin añadir ruido
             next_q_values = self.target_network([next_observations, next_infos], training=False)
 
             # Creamos un tensor de índices para saber las posiciones de las acciones válidas
