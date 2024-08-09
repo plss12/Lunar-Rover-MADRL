@@ -1,73 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import pygame
-from enum import Enum
-
-# Acciones posibles para el Lunar Rover, centradas en el movimiento
-class RoverAction(Enum):
-    WAIT = 0
-    UP = 1
-    DOWN = 2
-    LEFT = 3
-    RIGHT = 4
-
-# Recompensas según situación
-class RoverRewards(Enum):
-    INVALID = -10
-    CRASH = -10
-    BIG_OBSTACLE = -8
-    SMALL_OBSTACLE = -3
-    WAIT = -2
-    MOVE = -1
-    NEW_LOCATION = +20
-    MINE = +100
-    BLENDER = +500
-
-# Representación de los objetos en el entorno lunar
-class LunarObjects(Enum):
-    FLOOR = 0
-    SMALL_OBSTACLE = 1
-    BIG_OBSTACLE = 2
-    BLENDER = 3
-
-# Representación de los Rovers y sus localizaciones asignadas en el entorno lunar
-class RoversObjects:
-    def __init__(self, num_agents):
-        self.num_agents = num_agents
-        self.objects = {}
-
-        self._add_rovers_mines()
-    
-    # Añadimos los rovers y sus minas dinamicamente según el número de agentes
-    def _add_rovers_mines(self):
-        max_value = max(item.value for item in LunarObjects)
-        for i in range(1, self.num_agents + 1):
-
-            self.objects[f'ROVER_{i}'] = max_value + i * 2 - 1
-            self.objects[f'MINE_{i}'] = max_value + i * 2
-
-    # Método para obtener el número que representa a los agentes y sus minas
-    def get_agents_mines(self):
-        agents_mines = {}
-        for i in range(1, self.num_agents + 1):
-            rover_name = f'ROVER_{i}'
-            mine_name = f'MINE_{i}'
-            
-            agents_mines[self.objects[rover_name]] = self.objects[mine_name]
-        
-        return agents_mines
-
-# Estos son los valores que cada Rover verá en sus observaciones
-class RoverObsObjects(Enum):
-    OUT = -1
-    FLOOR = 0
-    SMALL_OBSTACLE = 1
-    BIG_OBSTACLE = 2
-    BLENDER = 3
-    ROVER = 4
-    MINE = 5
-    OTHER_ROVER = 6
-    OTHER_MINE = 7
+from gym_lunar_rover.envs.Utils import *
 
 class Rover:
     def __init__(self, env, agent_id, mine_id, start_pos, vision_range, mine_pos=(-1,-1), blender_pos=(-1,-1)):
@@ -81,12 +15,14 @@ class Rover:
 
         self.mined = False
         self.done = False
+        self.last_reward = 0
         self.total_reward = 0
         self.vision_range = vision_range
 
     # Método independiente de cada Rover en el que puede
     # realizar movimientos por su cuenta
     def step(self, action):
+        self.last_reward = 0
         reward = 0
         # Comprobamos si el rover está terminado para no 
         # continuar con el proceso del movimiento
@@ -101,6 +37,7 @@ class Rover:
             obs, obs_rew = self.get_observation()
             info = {}
             reward += RoverRewards.INVALID.value
+            self.last_reward += reward
             self.total_reward += reward
             self.env.total_reward += reward
             return obs, reward, self.done, info
@@ -123,6 +60,7 @@ class Rover:
         elif action == 0:
             # Penalización por gasto de energía en descanso y no explorar
             reward += RoverRewards.WAIT.value
+            self.last_reward += reward
             self.total_reward += reward
             self.env.total_reward += reward
             obs, obs_rew = self.get_observation()
@@ -150,6 +88,7 @@ class Rover:
             # dos agentes en una misma posición
             elif new_pos in self.env.rovers_mines_ids.keys():
                 reward += RoverRewards.CRASH.value
+                self.last_reward += reward
                 self.total_reward += reward
                 self.env.total_reward += reward
                 obs, obs_rew = self.get_observation()
@@ -176,6 +115,7 @@ class Rover:
                 
                 obs, obs_rew = self.get_observation()
                 reward += obs_rew
+                self.last_reward += reward
                 self.total_reward += reward
                 self.env.total_reward += reward
                 info = {}
@@ -205,6 +145,7 @@ class Rover:
         # será añadida al Rover tras realizar el movimiento y conllevará recompensa
         obs, obs_rew = self.get_observation()
         reward += obs_rew
+        self.last_reward += reward
         self.total_reward += reward
         self.env.total_reward += reward
         info = {}
@@ -238,18 +179,29 @@ class Rover:
 
         observation[start_x:end_x, start_y:end_y] = self.env.grid[min_x:max_x, min_y:max_y]
 
-        # Si la información de la mina y la meta se obtienen con observación se añade aquí
-        if self.mine_pos == (-1,-1):
+        if not self.done:
+            # Si la información de la mina y la meta se obtienen con observación se añade aquí
+            # y se suma una recompensa por encontrarse cerca de la mina si no hay minado o
+            # cerca de la meta si ya ha minado anteriormente
             mine_position = np.argwhere(observation == self.mine_id)
             if len(mine_position) > 0:
-                self.mine_pos = tuple(np.argwhere(self.env.grid == self.mine_id)[0])
-                reward += RoverRewards.NEW_LOCATION.value
+                if self.mine_pos == (-1,-1):
+                    self.mine_pos = tuple(np.argwhere(self.env.grid == self.mine_id)[0])
+                    reward += RoverRewards.NEW_LOCATION.value
+                # Si no ha minado es importante estar cerca de la mina
+                if not self.mined:
+                    distance_to_mine = calculate_distance(self.position, self.mine_pos)
+                    reward += round(RoverRewards.NEAR_LOCATION.value / (distance_to_mine))
 
-        if self.blender_pos == (-1,-1):
             blender_position = np.argwhere(observation == RoverObsObjects.BLENDER.value)
             if len(blender_position) > 0:
-                self.blender_pos = tuple(np.argwhere(self.env.grid == RoverObsObjects.BLENDER.value)[0])
-                reward += RoverRewards.NEW_LOCATION.value
+                    if self.blender_pos == (-1,-1):
+                        self.blender_pos = tuple(np.argwhere(self.env.grid == RoverObsObjects.BLENDER.value)[0])
+                        reward += RoverRewards.NEW_LOCATION.value
+                    # Si ya ha minado es importante estar cerca de la mezcladora
+                    if self.mined:
+                        distance_to_blender = calculate_distance(self.position, self.blender_pos)
+                        reward += round(RoverRewards.NEAR_LOCATION.value / (distance_to_blender))
 
         # Se realiza una normalización a la observación para que las observaciones de todos los Rovers
         # tengan el mismo formato. Para un Rover todos los demás Rovers y minas son iguales sin distinción,
@@ -326,6 +278,8 @@ class LunarEnv(gym.Env):
         self.vision_range = vision_range
         self.know_pos = know_pos
         self.render_mode = render_mode
+
+        self.actual_rover = -1
 
         self.rovers_mines_ids = None
         self.rovers = None
@@ -506,6 +460,16 @@ class LunarEnv(gym.Env):
                 pygame.quit()
                 quit()
 
+        done = self._get_done()
+        if not done:
+            self.actual_rover = (self.actual_rover + 1) % self.n_agents
+            rover = self.rovers[self.actual_rover]
+            if rover.done:
+                while rover.done:
+                    self.actual_rover = (self.actual_rover + 1) % self.n_agents
+                    rover = self.rovers[self.actual_rover]
+            rover_x, rover_y = rover.position
+        
         # Definir colores
         floor = (200, 200, 200) # Gris claro
         small_object = (255, 255, 0) # Amarillo
@@ -540,6 +504,11 @@ class LunarEnv(gym.Env):
                 elif value in self.mine_colors.keys():
                     color = self.mine_colors[value]
                     text = "M"
+
+                if not done:
+                    # Verificar si la casilla está dentro del rango de visión del rover
+                    if (abs(x - rover_x) <= self.vision_range and abs(y - rover_y) <= self.vision_range) and (x != rover_x or y != rover_y):
+                        color = darken_color(color)
 
                 pygame.draw.rect(self.screen, color, pygame.Rect(y * 50, x * 50, 50, 50))
                 pygame.draw.rect(self.screen, border_color, pygame.Rect(y * 50, x * 50, 50, 50), 1)

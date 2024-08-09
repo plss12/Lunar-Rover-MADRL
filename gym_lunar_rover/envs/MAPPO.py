@@ -183,15 +183,18 @@ class MAPPOAgent:
         action_prob = tf.reduce_sum(dist.prob(action)).numpy()
 
         # Combinamos los estados para obtener el value del critic
-        combined_map = combine_maps(state, self.init_state)
-        combined_map = np.expand_dims(combined_map, axis=0)
+        state = np.expand_dims(np.array(state), axis=-1)
+        state = np.expand_dims(np.array(state), axis=0)
+        combined_map = combine_maps(tf.convert_to_tensor(state, dtype=tf.float32), self.init_state)
 
         value = self.critic(combined_map, training=False)[0][0].numpy()
 
         return action, action_prob, value
 
-    def add_init_state(self, state):
-        self.init_state = state
+    def add_init_state(self, init_state):
+        init_state = np.expand_dims(np.array(init_state), axis=-1)
+        init_state = np.expand_dims(np.array(init_state), axis=0)
+        self.init_state = tf.convert_to_tensor(init_state, dtype=tf.float32)
 
     def add_experience(self, agent_id, observation, info, action, reward, done, available_action, state, value, prob):
         if self.clip_rewards:
@@ -263,7 +266,7 @@ class MAPPOAgent:
         indices = [[i, action] for i, actions in enumerate(available_actions) for action in actions]
         indices = tf.constant(indices, dtype=tf.int32)
 
-        # Creamos y aplicamps la máscara utilizando utilizando -inf para acciones no válidas
+        # Creamos y aplicamos la máscara utilizando utilizando -inf para acciones no válidas
         mask = tf.scatter_nd(indices, tf.ones(len(indices)), current_probs.shape)
         masked_probs = tf.where(mask == 1, current_probs, -tf.float32.max)
 
@@ -282,7 +285,9 @@ class MAPPOAgent:
 
     # Cálcular las ventajas con GAE para el critic loss
     def compute_critic_loss(self, states, discounted_rewards):
-        combined_states = np.array([combine_maps(state, self.init_state) for state in states])
+        # Añadimos a los estados el estado inicial para obtener su value con el critic
+        init_states = tf.tile(self.init_state, [tf.shape(states)[0], 1, 1, 1])
+        combined_states = combine_maps(states, init_states)
         values = self.critic(combined_states, training=True)
         critic_loss = tf.reduce_mean(tf.square(discounted_rewards - values))
         return critic_loss
