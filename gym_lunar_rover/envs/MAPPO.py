@@ -168,7 +168,8 @@ class MAPPOAgent:
         indices = [[0, action] for action in available_actions]
         indices = tf.constant(indices, dtype=tf.int32)
 
-        # Creamos y aplicamos la máscara utilizando -inf para acciones no válidas
+        # REPASAR
+        # Creamos y aplicamos la máscara utilizando 0 para acciones no válidas
         mask = tf.scatter_nd(indices, tf.ones(len(indices)), prob.shape)
         masked_prob = tf.where(mask == 1, prob, tf.zeros_like(prob))
 
@@ -266,9 +267,10 @@ class MAPPOAgent:
         indices = [[i, action] for i, actions in enumerate(available_actions) for action in actions]
         indices = tf.constant(indices, dtype=tf.int32)
 
-        # Creamos y aplicamos la máscara utilizando utilizando -inf para acciones no válidas
+        # REPASAR
+        # Creamos y aplicamos la máscara utilizando utilizando 0 para acciones no válidas
         mask = tf.scatter_nd(indices, tf.ones(len(indices)), current_probs.shape)
-        masked_probs = tf.where(mask == 1, current_probs, -tf.float32.max)
+        masked_probs = tf.where(mask == 1, current_probs, tf.zeros_like(current_probs))
 
         # Normalizamos las probabilidades de las acciones válidas para que sumen 1 y
         # nos quedamos con las probs de las acciones elegidas
@@ -379,11 +381,11 @@ class InferenceMAPPOAgent:
         info = np.expand_dims(info, axis=0)
         
         # Predecimos las probabilidades y usamos una máscara para evitar las inválidas
-        prob = self.actor([observation, info], training=False)
+        probs = self.actor([observation, info], training=False)
 
-        mask = np.full(prob.shape, 0)
-        mask[0, available_actions]= 0
-        masked_probs = prob + mask
+        mask = np.full(probs.shape, -np.inf)
+        mask[0, available_actions] = 0
+        masked_probs = probs + mask
 
         # Cogemos la mejor acción dentro de las válidas
         return np.argmax(masked_probs)

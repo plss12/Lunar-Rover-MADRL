@@ -20,10 +20,10 @@ class RoverRewards(Enum):
     SMALL_OBSTACLE = -3
     WAIT = -2
     MOVE = -1
-    NEAR_LOCATION = +20
+    NEAR_LOCATION = +10
     NEW_LOCATION = +50
     MINE = +100
-    BLENDER = +500
+    BLENDER = +800
 
 # Representación de los objetos en el entorno lunar
 class LunarObjects(Enum):
