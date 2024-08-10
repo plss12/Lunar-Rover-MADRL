@@ -5,7 +5,7 @@ from gym_lunar_rover.envs.MAPPO import MAPPOAgent
 from gym_lunar_rover.envs.Utils import *
 
 # Parámetros comunes para la creación del entorno
-n_agents = 4
+n_agents = 3
 grid_size = 12
 vision_range = 3
 know_pos = False
@@ -18,14 +18,14 @@ action_dim = env.action_space.nvec[0]
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Hiperparámetros
-    buffer_size = 10000
+    buffer_size = 25000
     batch_size = 64
 
     gamma = 0.99
 
     max_lr = 1e-2
-    min_lr = 1e-5
-    lr_decay_factor = 0.9
+    min_lr = 5e-5
+    lr_decay_factor = 0.5
     patiente = 100
     cooldown = 50
 
@@ -33,20 +33,20 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     min_epsilon = 0.4
     epsilon_decay = 1e-4
 
-    dropout_rate = 0.4
+    dropout_rate = 0.0
     l1_rate = 0.0
     l2_rate = 0.1
 
-    update_target_freq = 1000
-    warm_up_steps = 100
+    update_target_freq = 500
+    warm_up_steps = 1000
     clip_rewards = False
 
-    agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
+    agent = DoubleDuelingDQNAgent(observation_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
                                 max_epsilon, min_epsilon, epsilon_decay, gamma, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
                                 model_path, buffer_path, parameters_path)
 
-    max_episode_steps = 5000
+    max_episode_steps = 10000
     count_steps = 0
 
     total_rewards = []
@@ -71,11 +71,8 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 observation = observations[i]
                 # Normalizamos la observación en el rango 0-1
                 norm_observation = normalize_obs(observation)
-                # Normalizamos las posiciones en el rango 0-1
-                info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
-                info = np.append(info, int(rover.mined))
 
-                action = agent.act(norm_observation, info, available_actions)
+                action = agent.act(norm_observation, available_actions)
                 step_act = rover.step(action)
 
                 # Una vez realizada la acción obtenemos el nuevo estado para 
@@ -83,13 +80,10 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 next_observation, reward, done = step_act[0:3]
                 # Normalizamos la observación en el rango 0-1
                 norm_next_observation = normalize_obs(next_observation)
-                # Normalizamos las posiciones en el rango 0-1
-                next_info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
-                next_info = np.append(next_info, int(rover.mined))
                 next_availables_actions = rover.get_movements()
                 # Normalizamos la recompensa para reducir la magnitud de estas
                 norm_reward = normalize_reward(reward)
-                agent.add_experience(norm_observation, info, action, norm_reward, norm_next_observation, next_info, done, next_availables_actions)
+                agent.add_experience(norm_observation, action, norm_reward, norm_next_observation, done, next_availables_actions)
                 
                 # Con la nueva experiencia añadida entrenamos y obtenemos el loss
                 loss = agent.train()
@@ -337,8 +331,8 @@ def main():
     # Steps totales que queremos alcanzar
     total_train_steps = 1000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
-    # algorithm = 'DDDQL'
-    algorithm = 'MAPPO'
+    algorithm = 'DDDQL'
+    # algorithm = 'MAPPO'
 
     train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm)
 

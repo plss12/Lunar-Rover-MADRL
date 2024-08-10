@@ -15,8 +15,8 @@ class ReduceMeanLayer(Layer):
         advantage = inputs
         mean_advantage = tf.reduce_mean(advantage, axis=-1, keepdims=True)
         return mean_advantage
-    
-def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0, l2_rate=0):
+
+def dddqn_model(observation_dim, output_dim, dropout_rate=0, l1_rate=0, l2_rate=0):
     # Regularización L1, L2 o ambas combinadas
     if l1_rate!=0 and l2_rate!=0:
         reg = l1_l2(l1=l1_rate, l2=l2_rate)
@@ -33,26 +33,17 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
     # Procesamiento de la observación
     obs_x = Conv2D(16, (3, 3), activation='relu', kernel_regularizer=reg)(obs_input)
     obs_x = BatchNormalization()(obs_x)
+    obs_x = Conv2D(32, (3, 3), activation='relu', kernel_regularizer=reg)(obs_input)
+    obs_x = BatchNormalization()(obs_x)
+    obs_x = Dropout(dropout_rate)(obs_x)
     obs_x = Flatten()(obs_x)
-    obs_x = Dropout(dropout_rate)(obs_x) 
-
-    # Capa de entrada para la matriz de observación
-    info_input = Input(shape=(info_dim, ))
-
-    # Procesamiento de la posición
-    info_x = Dense(16, activation='relu', kernel_regularizer=reg)(info_input)
-    info_x = BatchNormalization()(info_x)
-    info_x = Dropout(dropout_rate)(info_x)
-
-    # Concatenar la salida de la observación y la posición y aplicar una capa densa
-    combined = Concatenate()([obs_x, info_x])
-    combined = Dense(32, activation='relu', kernel_regularizer=reg)(combined)
+    obs_x = Dense(64, activation='relu', kernel_regularizer=reg)(obs_x)
 
     # Capa de valor
-    value = Dense(1)(combined)
+    value = Dense(1)(obs_x)
 
     # Capa de ventaja
-    advantage = Dense(output_dim)(combined)
+    advantage = Dense(output_dim)(obs_x)
 
     # Capa ReduceMeanLayer para el cálculo de Q
     mean_advantage = ReduceMeanLayer()(advantage)
@@ -60,7 +51,7 @@ def dddqn_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
     # Cálculo de Q
     q = value + advantage - mean_advantage
 
-    model = Model(inputs=[obs_input, info_input], outputs=q)
+    model = Model(inputs=obs_input, outputs=q)
     return model
 
 class ExperienceReplayBuffer():
@@ -69,8 +60,8 @@ class ExperienceReplayBuffer():
         self.batch_size = batch_size
         self.buffer = deque(maxlen=buffer_size)
 
-    def add_exp(self, observation, info, action, reward, next_observation, next_info, done, next_availables_actions):
-        self.buffer.append((observation, info, action, reward, next_observation, next_info, done, next_availables_actions))
+    def add_exp(self, observation, action, reward, next_observation, done, next_availables_actions):
+        self.buffer.append((observation, action, reward, next_observation, done, next_availables_actions))
     
     def sample_exp(self):
         # Ajusta batch_size si es mayor que el número de experiencias disponibles
@@ -85,7 +76,7 @@ class ExperienceReplayBuffer():
 
 # Agente para el entrenamiento  
 class DoubleDuelingDQNAgent:
-    def __init__(self, observation_shape, info_shape, action_dim, buffer_size, batch_size,
+    def __init__(self, observation_shape, action_dim, buffer_size, batch_size,
                 warm_up_steps, clip_rewards, epsilon, min_epsilon, epsilon_decay, gamma, 
                 lr, min_lr, lr_decay_factor, patience, cooldown, 
                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
@@ -119,8 +110,8 @@ class DoubleDuelingDQNAgent:
             if self.lr < min_lr:
                 self.lr = min_lr
 
-        self.primary_network = dddqn_model(observation_shape, info_shape, action_dim, dropout_rate, l1_rate, l2_rate)
-        self.target_network = dddqn_model(observation_shape, info_shape, action_dim, dropout_rate, l1_rate, l2_rate)
+        self.primary_network = dddqn_model(observation_shape, action_dim, dropout_rate, l1_rate, l2_rate)
+        self.target_network = dddqn_model(observation_shape, action_dim, dropout_rate, l1_rate, l2_rate)
 
         # Si hay modelos guardados se cargan
         if model_path:
@@ -142,18 +133,17 @@ class DoubleDuelingDQNAgent:
         if buffer_path:
             self.load_buffer(buffer_path)
     
-    def act(self, observation, info, available_actions):
+    def act(self, observation, available_actions):
         if np.random.rand() < self.epsilon:
             # Devolver una acción posible aleatoria
             return np.random.choice(available_actions)
         else:
-            # Ajustamos las dimensiones de la observación y la info
+            # Ajustamos las dimensiones de la observación
             observation = np.expand_dims(observation, axis=0)
             observation = np.expand_dims(observation, axis=-1)
-            info = np.expand_dims(info, axis=0)
 
             # Predecimos los Q-values en modo inferencia
-            q_values = self.primary_network([observation, info], training=False).numpy()
+            q_values = self.primary_network(observation, training=False).numpy()
             
             # Implementamos una máscara para restringir las acciones inválidas
             mask = np.full(q_values.shape, -np.inf)
@@ -163,11 +153,11 @@ class DoubleDuelingDQNAgent:
             # Cogemos la mejor acción dentro de las acciones válidas
             return np.argmax(masked_q_values)
     
-    def add_experience(self, observation, info, action, reward, next_observation, next_info, done, available_actions_next):
+    def add_experience(self, observation, action, reward, next_observation, done, available_actions_next):
         if self.clip_rewards:
             reward = np.clip(reward, -1.0, 1.0)
 
-        self.replay_buffer.add_exp(observation, info, action, reward, next_observation, next_info, done, available_actions_next)
+        self.replay_buffer.add_exp(observation, action, reward, next_observation, done, available_actions_next)
 
     def update_target_network(self):
         # Hard update a la target network con los pesos de la primary network
@@ -239,26 +229,25 @@ class DoubleDuelingDQNAgent:
             self.warm_up_steps -= 1
             return 
         
-        observations, infos, actions, rewards, next_observations, next_infos, dones, next_availables_actions = self.replay_buffer.sample_exp()
+        observations, actions, rewards, next_observations, dones, next_availables_actions = self.replay_buffer.sample_exp()
         
         # Convertir arrays a tensores
         observations = tf.convert_to_tensor(observations, dtype=tf.float32)
         observations = tf.expand_dims(observations, axis=-1)
-        infos = tf.convert_to_tensor(infos, dtype=tf.float32)
         actions = tf.convert_to_tensor(actions, dtype=tf.int32)
         rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
         next_observations = tf.convert_to_tensor(next_observations, dtype=tf.float32)
         next_observations = tf.expand_dims(next_observations, axis=-1)
-        next_infos = tf.convert_to_tensor(next_infos, dtype=tf.float32)
         dones = tf.convert_to_tensor(dones, dtype=tf.float32)
 
         with tf.GradientTape() as tape:
             # Obtenemos los q-values del modelo principal para el estado actual
-            q_values = self.primary_network([observations, infos], training=True)
+            q_values_primary = self.primary_network(observations, training=True)
 
-            # Obtenemos los q-values del modelo objetivo para el siguiente estado
+            # Obtenemos los q-values del modelo y primary para el siguiente estado
             # Desactivamos regularización para contar con la red completa sin añadir ruido
-            next_q_values = self.target_network([next_observations, next_infos], training=False)
+            next_q_values_primary = self.primary_network(next_observations, training=False)
+            next_q_values_target = self.target_network(next_observations, training=False)
 
             # Creamos un tensor de índices para saber las posiciones de las acciones válidas
             indices = [[i, action] for i, actions in enumerate(next_availables_actions) for action in actions]
@@ -266,18 +255,22 @@ class DoubleDuelingDQNAgent:
 
             # Creamos y aplicamos una máscara para contar solo con las acciones válidas del siguiente estado
             mask = tf.scatter_nd(indices, tf.ones(len(indices)), [self.batch_size, self.action_dim])
-            masked_next_q_values = next_q_values * mask - (1 - mask) * tf.float32.max
+            masked_next_q_values_primary = next_q_values_primary * mask - (1 - mask) * tf.float32.max
+            masked_next_q_values_primary = tf.where(mask == 1, next_q_values_primary, -tf.float32.max)
 
-            # Calcular el valor objetivo usando el Dueling Double DQN
-            max_next_q_values = tf.reduce_max(masked_next_q_values, axis=1)
-            target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
+            # Obtenemos la mejor acción en el siguiente estado desde la primary y su correspondiente valor de target
+            next_best_actions_primary = tf.argmax(masked_next_q_values_primary, axis=1)
+            target_next_q_values = tf.reduce_sum(next_q_values_target * tf.one_hot(next_best_actions_primary, self.action_dim), axis=1)
 
-            # Calcular la pérdida
+            # Calculamos el valor objetivo usando Double DQN
+            target_q_values = rewards + (1 - dones) * self.gamma * target_next_q_values
+
+            # Calculamos la pérdida
             action_masks = tf.one_hot(actions, self.action_dim)
-            q_values_for_actions = tf.reduce_sum(q_values * action_masks, axis=1)
+            q_values_for_actions = tf.reduce_sum(q_values_primary * action_masks, axis=1)
             loss = tf.reduce_mean(tf.square(target_q_values - q_values_for_actions))
         
-        # Calcular y aplicar el gradiente
+        # Calculamos y aplicamps el gradiente
         gradients = tape.gradient(loss, self.primary_network.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.primary_network.trainable_variables))
 
@@ -300,20 +293,19 @@ class DoubleDuelingDQNAgent:
 
 # Agente para la inferencia tras finalizar el entrenamiento
 class InferenceDDDQNAgent:
-    def __init__(self, observation_shape, info_shape, action_dim, model_path):
+    def __init__(self, observation_shape, action_dim, model_path):
         self.action_dim = action_dim
-        self.primary_network = dddqn_model(observation_shape, info_shape, action_dim)
+        self.primary_network = dddqn_model(observation_shape, action_dim)
         self.primary_network.compile(loss='mse', optimizer='adam')
         self.primary_network.load_weights(model_path)
 
-    def act(self, observation, info, available_actions):
-        # Ajustamos las dimensiones de la observación y la info
+    def act(self, observation, available_actions):
+        # Ajustamos las dimensiones de la observación
         observation = np.expand_dims(observation, axis=0)
         observation = np.expand_dims(observation, axis=-1)
-        info = np.expand_dims(info, axis=0)
 
         # Predecimos los Q-values en modo inferencia
-        q_values = self.primary_network([observation, info], training=False).numpy()
+        q_values = self.primary_network(observation, training=False).numpy()
         
         # Implementamos una máscara para restringir las acciones inválidas
         mask = np.full(q_values.shape, -np.inf)
