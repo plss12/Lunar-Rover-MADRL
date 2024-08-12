@@ -62,7 +62,7 @@ def prueba_manual(n_agents, grid_size, vision_range, screen_info):
 
                     # Comprobamos si la acción es válida en el agente
                     if user_action in rover.get_movements():
-                        obs, reward, done, info = rover.step(user_action)
+                        obs, visits, reward, done, info = rover.step(user_action)
                         # print(f"Rover {current_agent} realiza movimiento {user_action} con recompensa {reward}")
                         dones[current_agent] = done
                         current_agent = (current_agent + 1) % n_agents
@@ -85,7 +85,7 @@ def prueba_conjunta(n_agents, grid_size, vision_range, screen_info):
     # Acciones realizadas conjuntamente por el env
     while not done:
         actions = env.action_space.sample()
-        obs, reward, done, truncated, info = env.step(actions)
+        obs, visits, reward, done, truncated, info = env.step(actions)
         # print(f"Finalizada fase de ejecución con {reward} de recompensa")
     
     print("Simulación completada")
@@ -106,7 +106,7 @@ def prueba_individual(n_agents, grid_size, vision_range, screen_info):
         for i, rover in enumerate(env.unwrapped.rovers):
             if rover.done == False:
                 action = random.choice(rover.get_movements())
-                obs, reward, done, info = rover.step(action)
+                obs, reward, visits, done, info = rover.step(action)
                 # print(f"Rover {i} realiza movimiento {action} con recompensa {reward}")
             else:
                 dones[i] = True

@@ -12,16 +12,16 @@ know_pos = False
 observation_shape = vision_range*2+1
 info_shape = 7
 
-env = gym.make('lunar-rover-v0', render_mode='train', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range, know_pos=know_pos)
+env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range, know_pos=know_pos)
 action_dim = env.action_space.nvec[0]
 
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Hiperparámetros
-    buffer_size = 25000
+    buffer_size = 50000
     batch_size = 64
 
-    gamma = 0.99
+    gamma = 0.9
 
     max_lr = 1e-2
     min_lr = 5e-5
@@ -30,18 +30,18 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     cooldown = 50
 
     max_epsilon = 1
-    min_epsilon = 0.4
-    epsilon_decay = 1e-4
+    min_epsilon = 0.5
+    epsilon_decay = 1e-5
 
     dropout_rate = 0.0
     l1_rate = 0.0
-    l2_rate = 0.1
+    l2_rate = 0.0
 
     update_target_freq = 500
     warm_up_steps = 1000
     clip_rewards = False
 
-    agent = DoubleDuelingDQNAgent(observation_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
+    agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
                                 max_epsilon, min_epsilon, epsilon_decay, gamma, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
                                 model_path, buffer_path, parameters_path)
@@ -53,7 +53,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     total_losses = []
 
     while count_steps < total_steps:
-        observations = list(env.reset()[0])
+        env.reset()
         dones = [False]*n_agents
         episode_rewards = []
         episode_losses = []
@@ -68,27 +68,37 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 if rover.done:
                     continue
                 available_actions = rover.get_movements()
-                observation = observations[i]
+                observation, visits = rover.get_observation()[0:2]
                 # Normalizamos la observación en el rango 0-1
                 norm_observation = normalize_obs(observation)
+                # Normalizamos las visitas en el rango 0-1
+                norm_visits = normalize_visits(visits)
+                # Normalizamos las posiciones en el rango 0-1
+                info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
+                info = np.append(info, int(rover.mined))
 
-                action = agent.act(norm_observation, available_actions)
+                action = agent.act(norm_observation, norm_visits, info, available_actions)
                 step_act = rover.step(action)
 
                 # Una vez realizada la acción obtenemos el nuevo estado para 
                 # añadir la experiencia completa al buffer
-                next_observation, reward, done = step_act[0:3]
+                next_observation, next_visits, reward, done = step_act[0:4]
                 # Normalizamos la observación en el rango 0-1
                 norm_next_observation = normalize_obs(next_observation)
+                # Normalizamos las visitas en el rango 0-1
+                norm_next_visits = normalize_visits(next_visits)
+                # Normalizamos las posiciones en el rango 0-1
+                next_info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
+                next_info = np.append(next_info, int(rover.mined))
                 next_availables_actions = rover.get_movements()
                 # Normalizamos la recompensa para reducir la magnitud de estas
                 norm_reward = normalize_reward(reward)
-                agent.add_experience(norm_observation, action, norm_reward, norm_next_observation, done, next_availables_actions)
+
+                agent.add_experience(norm_observation, norm_visits, info, action, norm_reward, norm_next_observation, norm_next_visits, next_info, done, next_availables_actions)
                 
                 # Con la nueva experiencia añadida entrenamos y obtenemos el loss
                 loss = agent.train()
 
-                observations[i] = next_observation
                 dones[i] = done
                 
                 episode_rewards.append(reward)
@@ -327,7 +337,7 @@ def main():
     steps_before_save = 50000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
-    initial_steps = 0
+    initial_steps = 350000
     # Steps totales que queremos alcanzar
     total_train_steps = 1000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)

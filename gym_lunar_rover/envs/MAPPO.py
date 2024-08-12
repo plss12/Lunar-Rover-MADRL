@@ -1,6 +1,6 @@
 import numpy as np
 from gym_lunar_rover.envs.Lunar_Rover_env import *
-from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau, normalize_valid_probs, combine_maps
+from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau, normalize_valid_probs
 import pickle
 import tensorflow as tf
 import tensorflow_probability as tfp
