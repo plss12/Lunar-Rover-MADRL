@@ -65,11 +65,12 @@ class RoverObsObjects(Enum):
     FLOOR = 0
     SMALL_OBSTACLE = 1
     BIG_OBSTACLE = 2
-    BLENDER = 3
-    ROVER = 4
-    MINE = 5
-    OTHER_ROVER = 6
-    OTHER_MINE = 7
+    MINE_NOT_MINED = 3
+    MINE_MINED = 4
+    BLENDER_NOT_MINED = 5
+    BLENDER_MINED = 6
+    OTHER_ROVER = 7
+    OTHER_MINE = 8
 
 # Función para generar un nombre de archivo único
 def generate_filename(algorithm, base_name, steps, extension):
@@ -136,6 +137,18 @@ def normalize_obs(obs):
 
     return obs
 
+# Normalizamos el mapa de visitas del Rover
+# según el máximo y el mínimo que contenga
+def normalize_visits(visits):
+    min = np.min(visits)
+    max = np.max(visits)
+
+    if max == min:
+        return np.zeros_like(visits)
+
+    else :
+        return (visits - min) / (max - min)
+
 # Normalizamos el mapa en el rango 0 a 1 para la entrada del 
 # Critic en el algoritmo MAPPO
 def normalize_map(map, objs):
@@ -151,8 +164,8 @@ def normalize_reward(reward):
 
 # Dados dos maps se combinan ambos, como si fueran dos canales de una imagen,
 # para la entrada del critic del MAPPO
-def combine_maps(agent_map, init_map):
-    return tf.concat([agent_map, init_map], axis=-1)
+# def combine_maps(agent_map, init_map):
+#     return tf.concat([agent_map, init_map], axis=-1)
 
     # return np.stack([agent_map, init_map], axis=-1)
 
@@ -170,20 +183,28 @@ class CustomReduceLROnPlateau:
         self.wait = 0
     
     def on_epoch_end(self, loss):
+        # Si estamos en cooldown esperamos
         if self.cooldown_counter > 0:
             self.cooldown_counter -= 1
             self.wait = 0
         
+        # Si el nuevo loss es menor que el mejor se guarda
         if loss < self.best_loss:
             self.best_loss = loss
             self.wait = 0
-
+        
+        # Si ya no estamos cooldown y el nuevo loss es mayor que
+        # el mejor loss comprobamos si hemos superado el wait para
+        # reducir el lr según el factor
         elif self.cooldown_counter <= 0 :
             self.wait += 1
             if self.wait >= self.patience:
                 self._reduce_lr()
                 self.wait = 0
                 self.cooldown_counter = self.cooldown
+                # Reiniciamos el best loss para que la nueva lr
+                # tenga tiempo de demostrar su efectividad
+                self.best_loss = float('inf')
         
         return self.lr
     
