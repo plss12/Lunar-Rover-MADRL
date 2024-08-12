@@ -18,10 +18,10 @@ action_dim = env.action_space.nvec[0]
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Hiperparámetros
-    buffer_size = 50000
+    buffer_size = 30000
     batch_size = 64
 
-    gamma = 0.9
+    gamma = 0.99
 
     max_lr = 1e-2
     min_lr = 5e-5
@@ -30,15 +30,15 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     cooldown = 50
 
     max_epsilon = 1
-    min_epsilon = 0.5
-    epsilon_decay = 1e-5
+    min_epsilon = 0.4
+    epsilon_decay = 5e-5
 
     dropout_rate = 0.0
     l1_rate = 0.0
     l2_rate = 0.0
 
-    update_target_freq = 500
-    warm_up_steps = 1000
+    update_target_freq = 300
+    warm_up_steps = 500
     clip_rewards = False
 
     agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
@@ -46,11 +46,12 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
                                 model_path, buffer_path, parameters_path)
 
-    max_episode_steps = 10000
+    max_episode_steps = 5000
     count_steps = 0
 
     total_rewards = []
     total_losses = []
+    total_episodes_steps = []
 
     while count_steps < total_steps:
         env.reset()
@@ -117,6 +118,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
         
         total_rewards.extend(episode_rewards)
         total_losses.extend(episode_losses)
+        total_episodes_steps.append(episode_steps)
 
         print(f'Episodio acabado tras {episode_steps} steps con una recompensa total de {episode_total_reward},',
               f'una recompensa promedio de {episode_average_reward} y una pérdida promedio de {episode_average_loss}')
@@ -130,11 +132,13 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     total_reward = sum(total_rewards)
     average_reward = round(total_reward / count_steps, 2)
     average_loss = round(float(np.mean(total_losses)), 4)
+    average_episode_steps = round(float(np.mean(total_episodes_steps)), 2)
 
     print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa',
-          f'y loss promedio de {average_reward} y {average_loss}\n')
+          f' promedio de {average_reward}, un loss promedio de {average_loss} y',
+          f' {average_episode_steps} steps de media por episodio\n')
 
-    return total_reward, average_reward, average_loss
+    return total_reward, average_reward, average_loss, average_episode_steps
 
 def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, parameters_path=None):
     # Hiperparámetros
@@ -334,10 +338,10 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
 
 def main():
     # Steps que queremos realizar antes de cada guardado
-    steps_before_save = 50000
+    steps_before_save = 10000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
-    initial_steps = 350000
+    initial_steps = 0
     # Steps totales que queremos alcanzar
     total_train_steps = 1000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
