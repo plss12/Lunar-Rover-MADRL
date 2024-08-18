@@ -281,25 +281,20 @@ class DoubleDuelingDQNAgent:
             next_q_values_primary = self.primary_network([next_obs_visits, next_infos], training=False)
             next_q_values_target = self.target_network([next_obs_visits, next_infos], training=False)
 
-            # Creamos un tensor de índices para saber las posiciones de las acciones válidas
-            indices = [[i, action] for i, actions in enumerate(next_availables_actions) for action in actions]
-            indices = tf.constant(indices, dtype=tf.int32)
-
             # Creamos y aplicamos una máscara para contar solo con las acciones válidas del siguiente estado
-            mask = tf.scatter_nd(indices, tf.ones(len(indices)), [self.batch_size, self.action_dim])
-            masked_next_q_values_primary = next_q_values_primary * mask - (1 - mask) * tf.float32.max
-            masked_next_q_values_primary = tf.where(mask == 1, next_q_values_primary, -tf.float32.max)
+            ragged_actions = tf.ragged.constant(next_availables_actions)
+            mask = tf.reduce_any(tf.one_hot(ragged_actions, self.action_dim, on_value=True, off_value=False, dtype=tf.bool).to_tensor(), axis=1)
+            masked_next_q_values_primary = tf.where(mask, next_q_values_primary, -tf.float32.max)
 
             # Obtenemos la mejor acción en el siguiente estado desde la primary y su correspondiente valor de target
             next_best_actions_primary = tf.argmax(masked_next_q_values_primary, axis=1)
-            target_next_q_values = tf.reduce_sum(next_q_values_target * tf.one_hot(next_best_actions_primary, self.action_dim), axis=1)
+            target_next_q_values = tf.gather(next_q_values_target, next_best_actions_primary, batch_dims=1)
 
             # Calculamos el valor objetivo usando Double DQN
             target_q_values = rewards + (1 - dones) * self.gamma * target_next_q_values
 
             # Calculamos la pérdida
-            action_masks = tf.one_hot(actions, self.action_dim)
-            q_values_for_actions = tf.reduce_sum(q_values_primary * action_masks, axis=1)
+            q_values_for_actions = tf.gather(q_values_primary, actions, batch_dims=1)
             loss = tf.reduce_mean(tf.square(target_q_values - q_values_for_actions))
         
         # Calculamos y aplicamps el gradiente

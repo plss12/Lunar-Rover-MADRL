@@ -166,10 +166,8 @@ def normalize_reward(reward):
 
 # Dados dos maps se combinan ambos, como si fueran dos canales de una imagen,
 # para la entrada del critic del MAPPO
-# def combine_maps(agent_map, init_map):
-#     return tf.concat([agent_map, init_map], axis=-1)
-
-    # return np.stack([agent_map, init_map], axis=-1)
+def combine_maps(agent_map, init_map):
+    return tf.concat([agent_map, init_map], axis=-1)
 
 # Estrategia de reducción de lr si no mejora el loss durante el train
 class CustomReduceLROnPlateau:
@@ -215,10 +213,10 @@ class CustomReduceLROnPlateau:
         self.optimizer.learning_rate.assign(new_lr)
         self.lr = new_lr
 
-def normalize_valid_probs(probs, mask):
-    valid_probs_sum = tf.reduce_sum(probs * mask, axis=-1, keepdims=True)
-    normalized_probs = (probs * mask) / valid_probs_sum
-    return normalized_probs
+def normalize_valid_probs(masked_prob, mask):
+    sum_probs = tf.reduce_sum(masked_prob, axis=-1, keepdims=True)
+    normalized_prob = tf.where(mask, masked_prob / sum_probs, 0)
+    return normalized_prob
 
 # Calcula la distancia euclidiana entre dos puntos (x, y)
 def calculate_distance(pos1, pos2):

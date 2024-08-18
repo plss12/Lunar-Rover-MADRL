@@ -143,19 +143,19 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
 def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, parameters_path=None):
     # Hiperparámetros
-    gamma = 0.95
+    gamma = 0.9
     lamda = 0.5
     clip = 0.2
 
-    max_lr = 1e-3
-    min_lr = 1e-5
+    max_lr = 1e-2
+    min_lr = 5e-5
     lr_decay_factor = 0.5
-    patiente = 20
-    cooldown = 10
+    patiente = 100
+    cooldown = 50
 
-    dropout_rate = 0.2
+    dropout_rate = 0.0
     l1_rate = 0
-    l2_rate = 0.1
+    l2_rate = 0.0
 
     clip_rewards = False
 
@@ -166,7 +166,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                        actor_path, critic_path, parameters_path)
     
     max_episode_steps = 5000
-    train_freq = 1000
+    train_freq = 150
     count_steps = 0
 
     total_rewards = []
@@ -175,13 +175,14 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     total_episodes_steps = []
 
     while count_steps < total_steps:
-        observations = list(env.reset()[0])
+        env.reset()[0]
         dones = [False]*n_agents
         episode_rewards = []
         episode_actor_losses = []
         episode_critic_losses = []
         episode_steps = 0
 
+        # Añadimos el mapa inicial normalizado al agente
         norm_init_map = normalize_map(env.unwrapped.initial_grid, env.unwrapped.rovers_mines_ids)
         agent.add_init_state(norm_init_map)
         
@@ -193,25 +194,26 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                     continue
 
                 available_actions = rover.get_movements()
-                observation = observations[i]
+                observation, visits = rover.get_observation()[0:2]
                 # Normalizamos la observación en el rango 0-1
                 norm_observation = normalize_obs(observation)
+                # Normalizamos las visitas en el rango 0-1
+                norm_visits = normalize_visits(visits)
                 # Normalizamos las posiciones en el rango 0-1
                 info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
                 info = np.append(info, int(rover.mined))
                 # Normalizamos el mapa en el rango 0-1
                 norm_state = normalize_map(env.unwrapped.grid, env.unwrapped.rovers_mines_ids)                
-                action, act_prob, state_value = agent.act(norm_observation, norm_state, info, available_actions)
+                action, act_prob, state_value = agent.act(norm_observation, norm_visits, norm_state, info, available_actions)
                 step_act = rover.step(action)
 
                 # Una vez realizada la acción obtenemos el nuevo estado para 
                 # añadir la experiencia completa al buffer
-                next_observation, reward, done = step_act[0:3]
+                reward, done = step_act[2:4]
                 # Normalizamos la recompensa para reducir la magnitud de estas
                 norm_reward = normalize_reward(reward)
-                agent.add_experience(i, norm_observation, info, action, norm_reward, done, available_actions, norm_state, state_value, act_prob)
+                agent.add_experience(i, norm_observation, norm_visits, info, action, norm_reward, done, available_actions, norm_state, state_value, act_prob)
 
-                observations[i] = next_observation
                 dones[i] = done
 
                 episode_rewards.append(reward)
@@ -346,12 +348,12 @@ def main():
     steps_before_save = 10000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
-    initial_steps = 970000
+    initial_steps = 0
     # Steps totales que queremos alcanzar
     total_train_steps = 2000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
-    algorithm = 'DDDQL'
-    # algorithm = 'MAPPO'
+    # algorithm = 'DDDQL'
+    algorithm = 'MAPPO'
 
     train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm)
 
