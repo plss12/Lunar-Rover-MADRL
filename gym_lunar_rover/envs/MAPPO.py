@@ -1,6 +1,6 @@
 import numpy as np
 from gym_lunar_rover.envs.Lunar_Rover_env import *
-from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau, normalize_valid_probs
+from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau, normalize_valid_probs, combine_maps
 import pickle
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -21,31 +21,34 @@ def actor_model(observation_dim, info_dim, output_dim, dropout_rate=0, l1_rate=0
         reg = None
 
     # Capa de entrada para la matriz de observación
-    obs_input = Input(shape=(observation_dim, observation_dim, 1))  
+    obs_input = Input(shape=(observation_dim, observation_dim, 2))  
 
     # Procesamiento de la observación
     obs_x = Conv2D(16, (3, 3), activation='relu', kernel_regularizer=reg)(obs_input)
-    obs_x = BatchNormalization()(obs_x)
     obs_x = Conv2D(32, (3, 3), activation='relu', kernel_regularizer=reg)(obs_x)
-    obs_x = BatchNormalization()(obs_x)
+    obs_x = Conv2D(64, (3, 3), activation='relu', kernel_regularizer=reg)(obs_x)
     obs_x = Flatten()(obs_x)
-    obs_x = Dropout(dropout_rate)(obs_x) 
+    obs_x = Dropout(dropout_rate)(obs_x)   
 
     # Capa de entrada para la matriz de observación
     info_input = Input(shape=(info_dim, ))
 
-    # Procesamiento de la posición
+    # Procesamiento de la info
     info_x = Dense(16, activation='relu', kernel_regularizer=reg)(info_input)
-    info_x = BatchNormalization()(info_x)
     info_x = Dense(32, activation='relu', kernel_regularizer=reg)(info_x)
-    info_x = BatchNormalization()(info_x)
-    info_x = Dropout(dropout_rate)(info_x)
+    info_x = Dense(64, activation='relu', kernel_regularizer=reg)(info_x)
+    info_x = Dropout(dropout_rate)(info_x)  
 
     # Concatenar la salida de la observación y la posición
     combined = Concatenate()([obs_x, info_x])
 
-    # Capas de policy
-    policy = Dense(32, activation='relu', kernel_regularizer=reg)(combined)
+    # Capas densas después de la concatenación
+    combined_x = Dense(64, activation='relu', kernel_regularizer=reg)(combined)
+    combined_x = Dense(128, activation='relu', kernel_regularizer=reg)(combined_x)
+    combined_x = Dropout(dropout_rate)(combined_x) 
+
+    # Capa de policy
+    policy = Dense(128, activation='relu', kernel_regularizer=reg)(combined_x)
     policy = Dense(output_dim, activation='softmax')(policy)
 
     actor = Model(inputs=[obs_input, info_input], outputs=policy)
@@ -68,14 +71,13 @@ def critic_model(map_dim, dropout_rate=0, l1_rate=0, l2_rate=0):
     
     # Procesamiento de los mapas del estado
     combined_x = Conv2D(16, (3, 3), activation='relu', kernel_regularizer=reg)(combined_input)
-    combined_x = BatchNormalization()(combined_x)
     combined_x = Conv2D(32, (3, 3), activation='relu', kernel_regularizer=reg)(combined_x)
-    combined_x = BatchNormalization()(combined_x)
+    combined_x = Conv2D(64, (3, 3), activation='relu', kernel_regularizer=reg)(combined_x)
     combined_x = Flatten()(combined_x)
     combined_x = Dropout(dropout_rate)(combined_x)
 
-    # Capa de value
-    value = Dense(32, activation='relu', kernel_regularizer=reg)(combined_x)
+    # Capa de valor
+    value = Dense(128, activation='relu', kernel_regularizer=reg)(combined_x)
     value = Dense(1)(value)
 
     critic = Model(inputs=combined_input, outputs=value)
@@ -85,8 +87,8 @@ class ExperienceBuffer():
     def __init__(self, n_agents):
         self.buffers = [[] for _ in range(n_agents)]
 
-    def add_exp(self, agent_id, observation, info, action, reward, done, available_action, state, value, old_prob):
-        self.buffers[agent_id].append((observation, info, action, reward, done, available_action, state, value, old_prob))
+    def add_exp(self, agent_id, observation, visits, info, action, reward, done, available_action, state, value, old_prob):
+        self.buffers[agent_id].append((observation, visits, info, action, reward, done, available_action, state, value, old_prob))
 
     def get_agent_exps(self, agent_id):
         return zip(*self.buffers[agent_id])
@@ -151,27 +153,21 @@ class MAPPOAgent:
         # Iniciamos el Buffer
         self.buffer = ExperienceBuffer(self.n_agents)
 
-    def act(self, observation, state, info, available_actions):
+    def act(self, observation, visits, state, info, available_actions):
         # Ajustamos las dimensiones de la observación y la info
         observation = np.expand_dims(observation, axis=0)
         observation = np.expand_dims(observation, axis=-1)
+        visits = np.expand_dims(visits, axis=0)
+        visits = np.expand_dims(visits, axis=-1)
+        obs_visits = np.concatenate([observation, visits], axis=-1)
         info = np.expand_dims(info, axis=0)
-
+        
         # Predecimos las probabilidades y con una máscara restringimos las acciones inválidas
-        prob = self.actor([observation, info], training=False)        
+        prob = self.actor([obs_visits, info], training=False)        
         
-        # Verificar NaNs en probabilidades predichas
-        if np.any(np.isnan(prob.numpy())):
-            raise ValueError("Las probabilidades predichas contienen NaN")
-        
-        # Creamos un tensor de índices para las acciones válidas
-        indices = [[0, action] for action in available_actions]
-        indices = tf.constant(indices, dtype=tf.int32)
-
-        # REPASAR
-        # Creamos y aplicamos la máscara utilizando 0 para acciones no válidas
-        mask = tf.scatter_nd(indices, tf.ones(len(indices)), prob.shape)
-        masked_prob = tf.where(mask == 1, prob, tf.zeros_like(prob))
+        # Aplicamos una máscara para contar solo con las acciones válidad
+        mask = tf.reduce_any(tf.one_hot(available_actions, self.action_dim, on_value=True, off_value=False, dtype=tf.bool), axis=0)
+        masked_prob = tf.where(mask, prob, 0)
 
         # Normalizamos las probabilidades de las acciones válidas para que sumen 1
         normalized_prob = normalize_valid_probs(masked_prob, mask)
@@ -197,11 +193,11 @@ class MAPPOAgent:
         init_state = np.expand_dims(np.array(init_state), axis=0)
         self.init_state = tf.convert_to_tensor(init_state, dtype=tf.float32)
 
-    def add_experience(self, agent_id, observation, info, action, reward, done, available_action, state, value, prob):
+    def add_experience(self, agent_id, observation, visits, info, action, reward, done, available_action, state, value, prob):
         if self.clip_rewards:
             reward = np.clip(reward, -1.0, 1.0)
 
-        self.buffer.add_exp(agent_id, observation, info, action, reward, done, available_action, state, value, prob)
+        self.buffer.add_exp(agent_id, observation, visits, info, action, reward, done, available_action, state, value, prob)
 
     def update_lr(self, loss, act_cri):
         # Disminuimos el lr del critic o actor con la estrategia plateau
@@ -256,26 +252,23 @@ class MAPPOAgent:
         return advantages
 
     #  Cálcular las recompensas acumuladas para el actor loss teniendo en cuenta solo las acciones válidas y el clip
-    def compute_actor_loss(self, observations, infos, actions, advantages, available_actions, old_probs):
-        current_probs  = self.actor([observations, infos], training=True)
+    def compute_actor_loss(self, obs_visits, infos, actions, advantages, available_actions, old_probs):
+        current_probs  = self.actor([obs_visits, infos], training=True)
 
-        # Verificar NaNs en probabilidades predichas
-        if np.any(np.isnan(current_probs.numpy())):
-            raise ValueError("Las probabilidades predichas contienen NaN")
-        
-        # Creamos un tensor de índices para las acciones válidas
-        indices = [[i, action] for i, actions in enumerate(available_actions) for action in actions]
-        indices = tf.constant(indices, dtype=tf.int32)
+        # # Verificar NaNs en probabilidades predichas
+        # if np.any(np.isnan(current_probs.numpy())):
+        #     raise ValueError("Las probabilidades predichas contienen NaN")
 
-        # REPASAR
-        # Creamos y aplicamos la máscara utilizando utilizando 0 para acciones no válidas
-        mask = tf.scatter_nd(indices, tf.ones(len(indices)), current_probs.shape)
-        masked_probs = tf.where(mask == 1, current_probs, tf.zeros_like(current_probs))
+        # Creamos y aplicamos la máscara utilizando 0 para acciones no válidas
+        ragged_actions = tf.ragged.constant(available_actions)
+        mask = tf.reduce_any(tf.one_hot(ragged_actions, self.action_dim, on_value=True, off_value=False, dtype=tf.bool), axis=1)
+        masked_probs = tf.where(mask, current_probs, 0)
 
         # Normalizamos las probabilidades de las acciones válidas para que sumen 1 y
         # nos quedamos con las probs de las acciones elegidas
         normalized_probs = normalize_valid_probs(masked_probs, mask)
         action_probs = tf.reduce_sum(normalized_probs * tf.one_hot(actions, normalized_probs.shape[-1]), axis=-1)
+        action_probs = tf.gather(normalized_probs, actions, batch_dims=1)
 
         # Cálculamos el ratio entre las nuevas y las antiguas probs y realizamos el clip
         ratio = action_probs / old_probs
@@ -305,11 +298,15 @@ class MAPPOAgent:
             if len(self.buffer.buffers[i])<=0:
                 continue
 
-            observations, infos, actions, rewards, dones, available_actions, states, values, old_probs = self.buffer.get_agent_exps(i)
+            observations, visits, infos, actions, rewards, dones, available_actions, states, values, old_probs = self.buffer.get_agent_exps(i)
 
             # Convertir arrays a tensores
             observations = tf.convert_to_tensor(observations, dtype=tf.float32)
             observations = tf.expand_dims(observations, axis=-1)
+            visits = tf.convert_to_tensor(visits, dtype=tf.float32)
+            visits = tf.expand_dims(visits, axis=-1)
+            obs_visits = tf.concat([observations, visits], axis=-1)
+
             infos = tf.convert_to_tensor(infos, dtype=tf.float32)
             actions = tf.convert_to_tensor(actions, dtype=tf.int32)
             rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
@@ -326,18 +323,27 @@ class MAPPOAgent:
                 advantages = self.compute_advantages(rewards, values, dones, self.gamma, self.lamda)
                 advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-10)
                 
-                actor_loss = self.compute_actor_loss(observations, infos, actions, advantages, available_actions, old_probs)
+                actor_loss = self.compute_actor_loss(obs_visits, infos, actions, advantages, available_actions, old_probs)
                 critic_loss = self.compute_critic_loss(states, discounted_rewards)
 
-            # Aplicar gradientes
+            # Aplicar gradientes            
             actor_grads = tape_actor.gradient(actor_loss, self.actor.trainable_variables)
             critic_grads = tape_critic.gradient(critic_loss, self.critic.trainable_variables)
         
-            self.act_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))
-            self.cri_optimizer.apply_gradients(zip(critic_grads, self.critic.trainable_variables))
+            # Acumular los gradientes
+            total_actor_grads = [grad_acc + grad for grad_acc, grad in zip(total_actor_grads, actor_grads)]
+            total_critic_grads = [grad_acc + grad for grad_acc, grad in zip(total_critic_grads, critic_grads)]
 
             actor_losses.append(actor_loss.numpy())
             critic_losses.append(critic_loss.numpy())
+        
+        # Promediar los gradientes
+        total_actor_grads = [grad / self.n_agents for grad in total_actor_grads]
+        total_critic_grads = [grad / self.n_agents for grad in total_critic_grads]
+
+        # Aplicar los gradientes promediados
+        self.act_optimizer.apply_gradients(zip(total_actor_grads, self.actor.trainable_variables))
+        self.cri_optimizer.apply_gradients(zip(total_critic_grads, self.critic.trainable_variables))
 
         # Comprobamos que se hayan calculado pérdidas
         if len(critic_losses)>0 and len(actor_losses)>0:
