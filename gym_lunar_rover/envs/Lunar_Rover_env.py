@@ -16,6 +16,8 @@ class Rover:
         self.visits_maps = np.zeros((self.env.unwrapped.grid_size, self.env.unwrapped.grid_size), dtype=int)
         self.visits_maps[self.position] = 1
 
+        self.near_distance = np.inf
+
         self.mined = False
         self.done = False
         self.last_reward = 0
@@ -66,7 +68,7 @@ class Rover:
         # comprobaciones extras por no haber movimiento
         elif action == 0:
             # Penalización por gasto de energía en descanso y no explorar
-            reward += RoverRewards.WAIT.value
+            reward += RoverRewards.WAIT.value * (self.visits_maps[x, y] + 1)
             self.last_reward += reward
             self.total_reward += reward
             self.env.total_reward += reward
@@ -85,11 +87,11 @@ class Rover:
         if new_pos != 0:
             # Recompensa negativa por obstáculo pequeño
             if new_pos == LunarObjects.SMALL_OBSTACLE.value:
-                reward += RoverRewards.SMALL_OBSTACLE.value
+                reward += RoverRewards.SMALL_OBSTACLE.value * (self.visits_maps[new_x, new_y] + 1)
 
             # Recompensa negativa por obstáculo grande
             elif new_pos == LunarObjects.BIG_OBSTACLE.value:
-                reward += RoverRewards.BIG_OBSTACLE.value
+                reward += RoverRewards.BIG_OBSTACLE.value * (self.visits_maps[new_x, new_y] + 1)
 
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
@@ -112,6 +114,7 @@ class Rover:
             elif new_pos == self.mine_id and self.mined == False: 
                 reward += RoverRewards.MINE.value
                 self.mined = True
+                self.near_distance = np.inf
             # Recompensa positiva si ha llegado al punto de recogida tras minar
             elif new_pos == LunarObjects.BLENDER.value and self.mined == True:
                 reward += RoverRewards.BLENDER.value
@@ -138,11 +141,11 @@ class Rover:
             # Recompensa negativa por moverse sobre cualquier otra posición 
             # con objeto sin recompensa especial
             else:
-                reward += RoverRewards.MOVE.value
+                reward += RoverRewards.MOVE.value * (self.visits_maps[new_x, new_y] + 1)
 
         # Recompensa negativa por el gasto de energía en el movimiento a un espacio vacio
         else:
-            reward += RoverRewards.MOVE.value
+            reward += RoverRewards.MOVE.value * (self.visits_maps[new_x, new_y] + 1)
 
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa
@@ -204,16 +207,22 @@ class Rover:
                 # Si no ha minado es importante estar cerca de la mina
                 if not self.mined:
                     distance_to_mine = calculate_distance(self.position, self.mine_pos)
-                    reward += round(RoverRewards.NEAR_LOCATION.value / (distance_to_mine))
+                    # Damos solo recompesa por acercarse no por alejarse
+                    if distance_to_mine < self.near_distance:
+                        self.near_distance = distance_to_mine
+                        reward += round(RoverRewards.NEAR_LOCATION.value / (distance_to_mine))
 
             blender_position = np.argwhere(observation == LunarObjects.BLENDER.value)
             if len(blender_position) > 0:
-                    if self.blender_pos == (-1,-1):
-                        self.blender_pos = tuple(np.argwhere(self.env.grid == LunarObjects.BLENDER.value)[0])
-                        reward += RoverRewards.NEW_LOCATION.value
-                    # Si ya ha minado es importante estar cerca de la mezcladora
-                    if self.mined:
-                        distance_to_blender = calculate_distance(self.position, self.blender_pos)
+                if self.blender_pos == (-1,-1):
+                    self.blender_pos = tuple(np.argwhere(self.env.grid == LunarObjects.BLENDER.value)[0])
+                    reward += RoverRewards.NEW_LOCATION.value
+                # Si ya ha minado es importante estar cerca de la mezcladora
+                if self.mined:
+                    distance_to_blender = calculate_distance(self.position, self.blender_pos)
+                    # Damos solo recompesa por acercarse no por alejarse
+                    if distance_to_blender < self.near_distance:
+                        self.near_distance = distance_to_blender
                         reward += round(RoverRewards.NEAR_LOCATION.value / (distance_to_blender))
 
         # Se realiza una normalización a la observación para que las observaciones de todos los Rovers

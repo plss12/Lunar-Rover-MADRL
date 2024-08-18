@@ -18,27 +18,27 @@ action_dim = env.action_space.nvec[0]
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Hiperparámetros
-    buffer_size = 30000
+    buffer_size = 25000
     batch_size = 64
 
-    gamma = 0.99
+    gamma = 0.9
 
     max_lr = 1e-2
-    min_lr = 5e-5
+    min_lr = 1e-5
     lr_decay_factor = 0.5
     patiente = 100
     cooldown = 50
 
     max_epsilon = 1
     min_epsilon = 0.4
-    epsilon_decay = 5e-5
+    epsilon_decay = 1e-5
 
     dropout_rate = 0.0
     l1_rate = 0.0
     l2_rate = 0.0
 
-    update_target_freq = 500
-    warm_up_steps = 500
+    update_target_freq = 300
+    warm_up_steps = 1000
     clip_rewards = False
 
     agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
@@ -46,7 +46,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
                                 model_path, buffer_path, parameters_path)
 
-    max_episode_steps = 5000
+    max_episode_steps = 2000
     count_steps = 0
 
     total_rewards = []
@@ -134,13 +134,12 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     average_loss = round(float(np.mean(total_losses)), 4)
     num_episodes = len(total_episodes_steps)
     max_steps = max(total_episodes_steps)
-    min_steps = min(total_episodes_steps)
 
     print(f'\nEntrenamiento guardado tras {count_steps} steps con una recompensa',
           f'promedio de {average_reward}, un loss promedio de {average_loss} y',
           f'un total de {num_episodes} episodios completados\n')
 
-    return total_reward, average_reward, average_loss, num_episodes, max_steps, min_steps
+    return total_reward, average_reward, average_loss, num_episodes, max_steps
 
 def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, parameters_path=None):
     # Hiperparámetros
@@ -264,12 +263,11 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     average_critic_loss = round(float(np.mean(total_critic_losses)), 4)
     num_episodes = len(total_episodes_steps)
     max_steps = max(total_episodes_steps)
-    min_steps = min(total_episodes_steps)
 
     print(f'\nEntrenamiento guardado tras {count_steps} steps con un total de {num_episodes}, una recompensa promedio de {average_reward}',
           f'y unas pérdidas promedio de {average_actor_loss} para el actor y {average_critic_loss} para el critic\n')
 
-    return total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps, min_steps
+    return total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps
 
 def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm):
 
@@ -287,7 +285,7 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
             while count_steps < total_train_steps:
                 # Si no hay un modelo previo que entrenar se empieza desde 0
                 if first_train:
-                    total_reward, average_reward, average_loss, num_episodes, max_steps, min_steps = train_dddql(steps_before_save, initial_steps)
+                    total_reward, average_reward, average_loss, num_episodes, max_steps = train_dddql(steps_before_save, initial_steps)
                     first_train = False
                 # Si hay un modelo previo se carga y se entrena desde ese punto
                 else:
@@ -301,10 +299,10 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
                         return
 
                     # Si todos sus ficheros existen se realiza el entrenamiento desde el modelo dado
-                    total_reward, average_reward, average_loss, num_episodes, max_steps, min_steps = train_dddql(steps_before_save, initial_steps, model_filename, buffer_filename, parameters_filename)
+                    total_reward, average_reward, average_loss, num_episodes, max_steps = train_dddql(steps_before_save, initial_steps, model_filename, buffer_filename, parameters_filename)
 
                 # Guardamos los datos de como ha ido el entrenamiento para ir viendo su evolución
-                csv_save_train_dddql(algorithm, initial_steps, steps_before_save, total_reward, average_reward, average_loss, num_episodes, max_steps, min_steps)
+                csv_save_train_dddql(algorithm, initial_steps, initial_steps+steps_before_save, total_reward, average_reward, average_loss, num_episodes, max_steps)
 
                 # Sumamos los steps realizados al count total y a los iniciales para llevar el recuento
                 # de steps totales entrenados en esta llamada y los totales entrenados por el modelo
@@ -316,7 +314,7 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
             while count_steps < total_train_steps:
                 # Si no hay un modelo previo que entrenar se empieza desde 0
                 if first_train:
-                    total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps, mmin_steps= train_mappo(steps_before_save, initial_steps)
+                    total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps= train_mappo(steps_before_save, initial_steps)
                     first_train = False
                 # Si hay un modelo previo se carga y se entrena desde ese punto
                 else:
@@ -330,10 +328,10 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
                         return
 
                     # Si todos sus ficheros existen se realiza el entrenamiento desde el modelo dado
-                    total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps, mmin_steps = train_mappo(steps_before_save, initial_steps, actor_filename, critic_filename, parameters_filename)
+                    total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps = train_mappo(steps_before_save, initial_steps, actor_filename, critic_filename, parameters_filename)
 
                 # Guardamos los datos de como ha ido el entrenamiento para ir viendo su evolución
-                csv_save_train_mappo(algorithm, initial_steps, steps_before_save, total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps, mmin_steps)
+                csv_save_train_mappo(algorithm, initial_steps, initial_steps+steps_before_save, total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps)
 
                 # Sumamos los steps realizados al count total y a los iniciales para llevar el recuento
                 # de steps totales entrenados en esta llamada y los totales entrenados por el modelo
@@ -348,9 +346,9 @@ def main():
     steps_before_save = 10000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
-    initial_steps = 0
+    initial_steps = 970000
     # Steps totales que queremos alcanzar
-    total_train_steps = 1000000
+    total_train_steps = 2000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
     algorithm = 'DDDQL'
     # algorithm = 'MAPPO'

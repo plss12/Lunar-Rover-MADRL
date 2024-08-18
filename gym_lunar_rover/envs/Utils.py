@@ -15,15 +15,15 @@ class RoverAction(Enum):
 # Recompensas según situación
 class RoverRewards(Enum):
     INVALID = -10
-    CRASH = -10
-    BIG_OBSTACLE = -8
+    CRASH = -20
+    BIG_OBSTACLE = -10
     SMALL_OBSTACLE = -3
     WAIT = -2
     MOVE = -1
     NEAR_LOCATION = +10
     NEW_LOCATION = +50
-    MINE = +100
-    BLENDER = +800
+    MINE = +500
+    BLENDER = +1000
 
 # Representación de los objetos en el entorno lunar
 class LunarObjects(Enum):
@@ -81,9 +81,9 @@ def check_file_exists(filename):
     return os.path.exists(filename)
 
 # Función para escribir en un csv la evolución de las métricas del entrenamiento de dddql
-def csv_save_train_dddql(algorithm, initial_steps, final_steps, total_reward, average_reward, average_loss, num_episodes, max_steps, min_steps):
+def csv_save_train_dddql(algorithm, initial_steps, final_steps, total_reward, average_reward, average_loss, num_episodes, max_steps):
     file_path = 'training_metrics_dddql.csv'
-    fieldnames = ['algorithm', 'initial_steps', 'final_steps', 'total_reward', 'average_reward', 'average_loss', 'num_episodes', 'max_steps', 'min_steps']
+    fieldnames = ['algorithm', 'initial_steps', 'final_steps', 'total_reward', 'average_reward', 'average_loss', 'num_episodes', 'max_steps']
     
     if not os.path.isfile(file_path):
         # Inicializar archivo CSV si no existe para guardar métricas
@@ -95,12 +95,12 @@ def csv_save_train_dddql(algorithm, initial_steps, final_steps, total_reward, av
     with open(file_path, mode='a', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'final_steps': final_steps, 'total_reward': total_reward, 
-                         'average_reward': average_reward, 'average_loss': average_loss, 'num_episodes': num_episodes, 'max_steps': max_steps, 'min_steps': min_steps})
+                         'average_reward': average_reward, 'average_loss': average_loss, 'num_episodes': num_episodes, 'max_steps': max_steps})
 
 # Función para escribir en un csv la evolución de las métricas del entrenamiento de mappo
-def csv_save_train_mappo(algorithm, initial_steps, final_steps, total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps, min_steps):
+def csv_save_train_mappo(algorithm, initial_steps, final_steps, total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps):
     file_path = 'training_metrics_mappo.csv'
-    fieldnames = ['algorithm', 'initial_steps', 'final_steps', 'total_reward', 'average_reward', 'average_actor_loss', 'average_critic_loss', 'num_episodes', 'max_steps', 'min_steps']
+    fieldnames = ['algorithm', 'initial_steps', 'final_steps', 'total_reward', 'average_reward', 'average_actor_loss', 'average_critic_loss', 'num_episodes', 'max_steps']
     
     if not os.path.isfile(file_path):
         # Inicializar archivo CSV si no existe para guardar métricas
@@ -112,7 +112,7 @@ def csv_save_train_mappo(algorithm, initial_steps, final_steps, total_reward, av
     with open(file_path, mode='a', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writerow({'algorithm': algorithm, 'initial_steps': initial_steps, 'final_steps': final_steps, 'total_reward': total_reward, 
-                         'average_reward': average_reward,'average_actor_loss': average_actor_loss, 'average_critic_loss': average_critic_loss, 'num_episodes': num_episodes, 'max_steps': max_steps, 'min_steps': min_steps})
+                         'average_reward': average_reward,'average_actor_loss': average_actor_loss, 'average_critic_loss': average_critic_loss, 'num_episodes': num_episodes, 'max_steps': max_steps})
 
 # Función para oscurecer un color
 def darken_color(color, factor=0.7):
