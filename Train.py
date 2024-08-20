@@ -150,8 +150,8 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     max_lr = 1e-2
     min_lr = 5e-5
     lr_decay_factor = 0.5
-    patiente = 100
-    cooldown = 50
+    patiente = 10
+    cooldown = 5
 
     dropout_rate = 0.0
     l1_rate = 0
@@ -166,7 +166,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                        actor_path, critic_path, parameters_path)
     
     max_episode_steps = 5000
-    train_freq = 150
+    train_freq = 200
     count_steps = 0
 
     total_rewards = []
@@ -241,7 +241,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
         
         episode_total_reward = sum(episode_rewards)
         episode_average_reward = round(float(np.mean(episode_rewards)),2)
-        episode_average_actor_loss = round(float(np.mean(episode_actor_losses)), 4) if episode_actor_losses else 0
+        episode_average_actor_loss = np.mean(episode_actor_losses) if episode_actor_losses else 0
         episode_average_critic_loss = round(float(np.mean(episode_critic_losses)), 4) if episode_critic_losses else 0
 
         total_rewards.extend(episode_rewards)
@@ -261,7 +261,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
     total_reward = sum(total_rewards)
     average_reward = round(total_reward / count_steps, 2)
-    average_actor_loss = round(float(np.mean(total_actor_losses)), 4)
+    average_actor_loss = np.mean(total_actor_losses)
     average_critic_loss = round(float(np.mean(total_critic_losses)), 4)
     num_episodes = len(total_episodes_steps)
     max_steps = max(total_episodes_steps)
