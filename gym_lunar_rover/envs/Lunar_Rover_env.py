@@ -360,7 +360,7 @@ class LunarEnv(gym.Env):
 
         # Al ser el inicio del env no queremos que actualice la info
         # de los Rover dada su observación
-        obs = self._get_obs(False)
+        obs = self._get_obs()
         info = {}
 
         if self.render_mode=='human':
@@ -420,13 +420,10 @@ class LunarEnv(gym.Env):
         return all(rover.done for rover in self.rovers)   
     
     # Obtiene todas las observaciones de los rovers
-    def _get_obs(self, update_pos):
+    def _get_obs(self):
         obs = []
         for rover in self.rovers:
             obs.append(rover.get_observation()[0])
-            if not update_pos and not self.know_pos:
-                rover.mine_pos = (-1,-1)
-                rover.blender_pos = (-1,-1)
         return tuple(obs)
     
     # Obtiene una lista con el estado de si los rovers han terminado
@@ -485,7 +482,7 @@ class LunarEnv(gym.Env):
                 # print(f"Rover {rover.agent_id} realiza movimiento {action} con recompensa {rover.reward}")
 
         # Devuelve todas las observaciones, la reward total del step y si han acabado todos
-        obs = self._get_obs(True)
+        obs = self._get_obs()
         done = self._get_done()
         # Como los formatos del return son fijos, para devolver las listas de recompensas
         # y acabados usaremos el dict info

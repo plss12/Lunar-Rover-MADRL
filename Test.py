@@ -1,8 +1,8 @@
 import numpy as np
-from gym_lunar_rover.envs.DDDQL import InferenceDDDQNAgent
-from gym_lunar_rover.envs.MAPPO import InferenceMAPPOAgent
+from gym_lunar_rover.algorithms.DDDQL import InferenceDDDQNAgent
+from gym_lunar_rover.algorithms.MAPPO import InferenceMAPPOAgent
 from gym_lunar_rover.envs.Test_env import TestEnv
-from gym_lunar_rover.envs.Utils import generate_filename, normalize_obs, normalize_pos, normalize_visits, check_file_exists
+from gym_lunar_rover.envs.Utils import *
 
 # Parámetros para la creación del entorno
 n_agents = 3
