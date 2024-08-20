@@ -2,7 +2,7 @@ import random
 import gymnasium as gym
 import pygame
 from gym_lunar_rover.envs.Lunar_Rover_env import RoverAction
-from gym_lunar_rover.envs.Info_tk import RoverInfoWindow
+from gym_lunar_rover.stats.Info_tk import RoverInfoWindow
 import threading
 
 def tk_info(env):

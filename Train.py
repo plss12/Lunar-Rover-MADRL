@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
-from gym_lunar_rover.envs.DDDQL import DoubleDuelingDQNAgent
-from gym_lunar_rover.envs.MAPPO import MAPPOAgent
+from gym_lunar_rover.algorithms.DDDQL import DoubleDuelingDQNAgent
+from gym_lunar_rover.algorithms.MAPPO import MAPPOAgent
 from gym_lunar_rover.envs.Utils import *
 
 # Parámetros comunes para la creación del entorno
