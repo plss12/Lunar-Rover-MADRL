@@ -18,13 +18,13 @@ action_dim = env.action_space.nvec[0]
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Hiperparámetros
-    buffer_size = 25000
+    buffer_size = 50000
     batch_size = 64
 
     gamma = 0.9
 
     max_lr = 1e-2
-    min_lr = 1e-5
+    min_lr = 5e-5
     lr_decay_factor = 0.5
     patiente = 100
     cooldown = 50
@@ -37,7 +37,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     l1_rate = 0.0
     l2_rate = 0.0
 
-    update_target_freq = 300
+    update_target_freq = 500
     warm_up_steps = 1000
     clip_rewards = False
 
@@ -46,7 +46,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
                                 model_path, buffer_path, parameters_path)
 
-    max_episode_steps = 2000
+    max_episode_steps = 5000
     count_steps = 0
 
     total_rewards = []
@@ -352,8 +352,8 @@ def main():
     # Steps totales que queremos alcanzar
     total_train_steps = 2000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
-    # algorithm = 'DDDQL'
-    algorithm = 'MAPPO'
+    algorithm = 'DDDQL'
+    # algorithm = 'MAPPO'
 
     train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm)
 

@@ -68,11 +68,10 @@ class Rover:
         # comprobaciones extras por no haber movimiento
         elif action == 0:
             # Penalización por gasto de energía en descanso y no explorar
-            reward += RoverRewards.WAIT.value * (self.visits_maps[x, y] + 1)
+            reward += RoverRewards.WAIT.value
             self.last_reward += reward
             self.total_reward += reward
             self.env.total_reward += reward
-            self.visits_maps[x, y] += 1
             obs, visits, obs_rew = self.get_observation()
             info = {}
 
@@ -87,11 +86,11 @@ class Rover:
         if new_pos != 0:
             # Recompensa negativa por obstáculo pequeño
             if new_pos == LunarObjects.SMALL_OBSTACLE.value:
-                reward += RoverRewards.SMALL_OBSTACLE.value * (self.visits_maps[new_x, new_y] + 1)
+                reward += RoverRewards.SMALL_OBSTACLE.value
 
             # Recompensa negativa por obstáculo grande
             elif new_pos == LunarObjects.BIG_OBSTACLE.value:
-                reward += RoverRewards.BIG_OBSTACLE.value * (self.visits_maps[new_x, new_y] + 1)
+                reward += RoverRewards.BIG_OBSTACLE.value
 
             # Recompensa negativa por chocar con otro agente
             # Además no movemos al rover ya que no puede haber
@@ -141,12 +140,15 @@ class Rover:
             # Recompensa negativa por moverse sobre cualquier otra posición 
             # con objeto sin recompensa especial
             else:
-                reward += RoverRewards.MOVE.value * (self.visits_maps[new_x, new_y] + 1)
+                reward += RoverRewards.MOVE.value
 
         # Recompensa negativa por el gasto de energía en el movimiento a un espacio vacio
         else:
-            reward += RoverRewards.MOVE.value * (self.visits_maps[new_x, new_y] + 1)
+            reward += RoverRewards.MOVE.value
 
+        # Sumamos una reward negativa en base a como de visitada esté la nueva posición
+        reward -= self.visits_maps[new_x, new_y]
+        
         # Movemos al agente a la nueva posición y en la posición que estaba 
         # colocamos lo que había en la copia inicial del mapa
         self.env.grid[x, y] = self.env.initial_grid[x, y]
@@ -422,7 +424,7 @@ class LunarEnv(gym.Env):
         obs = []
         for rover in self.rovers:
             obs.append(rover.get_observation()[0])
-            if not update_pos:
+            if not update_pos and not self.know_pos:
                 rover.mine_pos = (-1,-1)
                 rover.blender_pos = (-1,-1)
         return tuple(obs)
