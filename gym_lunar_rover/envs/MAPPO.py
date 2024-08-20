@@ -255,10 +255,6 @@ class MAPPOAgent:
     def compute_actor_loss(self, obs_visits, infos, actions, advantages, available_actions, old_probs):
         current_probs  = self.actor([obs_visits, infos], training=True)
 
-        # # Verificar NaNs en probabilidades predichas
-        # if np.any(np.isnan(current_probs.numpy())):
-        #     raise ValueError("Las probabilidades predichas contienen NaN")
-
         # Creamos y aplicamos la máscara utilizando 0 para acciones no válidas
         ragged_actions = tf.ragged.constant(available_actions)
         mask = tf.reduce_any(tf.one_hot(ragged_actions, self.action_dim, on_value=True, off_value=False, dtype=tf.bool), axis=1)
@@ -291,6 +287,10 @@ class MAPPOAgent:
 
         actor_losses = []
         critic_losses = []
+
+        # Inicializamos los acumuladores de gradientes
+        total_actor_grads = [tf.zeros_like(var) for var in self.actor.trainable_variables]
+        total_critic_grads = [tf.zeros_like(var) for var in self.critic.trainable_variables]
 
         # Recorremos las experiencias de los agentes de uno en uno
         for i in range(self.n_agents):
@@ -326,7 +326,7 @@ class MAPPOAgent:
                 actor_loss = self.compute_actor_loss(obs_visits, infos, actions, advantages, available_actions, old_probs)
                 critic_loss = self.compute_critic_loss(states, discounted_rewards)
 
-            # Aplicar gradientes            
+            # Calcular y acumular los gradientes          
             actor_grads = tape_actor.gradient(actor_loss, self.actor.trainable_variables)
             critic_grads = tape_critic.gradient(critic_loss, self.critic.trainable_variables)
         
@@ -362,7 +362,7 @@ class MAPPOAgent:
             self.update_lr(avg_actor_loss, "Actor")
             self.update_lr(avg_critic_loss, "Critic") 
 
-            return round(avg_actor_loss, 4), round(avg_critic_loss, 4)
+            return avg_actor_loss, round(avg_critic_loss, 4)
 
         # De lo contratio todos los buffers estaban vacios y no se han calculado pérdidas
         else:
