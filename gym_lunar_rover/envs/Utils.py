@@ -15,15 +15,15 @@ class RoverAction(Enum):
 # Recompensas según situación
 class RoverRewards(Enum):
     INVALID = -10
-    CRASH = -20
-    BIG_OBSTACLE = -10
+    CRASH = -50
+    BIG_OBSTACLE = -25
     SMALL_OBSTACLE = -3
     WAIT = -2
     MOVE = -1
-    NEAR_LOCATION = +10
+    NEAR_LOCATION = +20
     NEW_LOCATION = +50
-    MINE = +500
-    BLENDER = +1000
+    MINE = +250
+    BLENDER = +800
 
 # Representación de los objetos en el entorno lunar
 class LunarObjects(Enum):

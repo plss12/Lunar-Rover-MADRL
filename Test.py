@@ -63,7 +63,7 @@ def test(algorithm, steps):
 
 def main():
     # Número de steps del modelo que queremos testear
-    model_steps = 970000
+    model_steps = 140000
     # Algoritmo que queremos testear (DDDQL o MAPPO)
     algorithm = 'DDDQL'
     # algorithm = 'MAPPO'
