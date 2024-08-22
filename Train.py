@@ -18,16 +18,16 @@ action_dim = env.action_space.nvec[0]
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Hiperparámetros
-    buffer_size = 50000
+    buffer_size = 25000
     batch_size = 64
 
     gamma = 0.9
 
     max_lr = 1e-2
-    min_lr = 5e-5
+    min_lr = 1e-5
     lr_decay_factor = 0.5
-    patiente = 100
-    cooldown = 50
+    patiente = 200
+    cooldown = 10
 
     max_epsilon = 1
     min_epsilon = 0.4
@@ -37,10 +37,9 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     l1_rate = 0.0
     l2_rate = 0.0
 
-    update_target_freq = 500
+    update_target_freq = 300
     warm_up_steps = 1000
     clip_rewards = False
-
     agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
                                 max_epsilon, min_epsilon, epsilon_decay, gamma, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
                                 dropout_rate, l1_rate, l2_rate, update_target_freq, 
