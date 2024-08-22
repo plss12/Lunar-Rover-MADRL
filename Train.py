@@ -146,8 +146,8 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     lamda = 0.5
     clip = 0.2
 
-    max_lr = 1e-2
-    min_lr = 5e-5
+    max_lr = 1e-4
+    min_lr = 1e-5
     lr_decay_factor = 0.5
     patiente = 10
     cooldown = 5
@@ -165,16 +165,17 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                        actor_path, critic_path, parameters_path)
     
     max_episode_steps = 5000
-    train_freq = 200
+    train_freq = 250
     count_steps = 0
+    last_update_step = 0
 
     total_rewards = []
-    total_actor_losses = []
-    total_critic_losses = []
+    weighted_actor_losses = []
+    weighted_critic_losses = []
     total_episodes_steps = []
 
     while count_steps < total_steps:
-        env.reset()[0]
+        env.reset()
         dones = [False]*n_agents
         episode_rewards = []
         episode_actor_losses = []
@@ -211,6 +212,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 reward, done = step_act[2:4]
                 # Normalizamos la recompensa para reducir la magnitud de estas
                 norm_reward = normalize_reward(reward)
+
                 agent.add_experience(i, norm_observation, norm_visits, info, action, norm_reward, done, available_actions, norm_state, state_value, act_prob)
 
                 dones[i] = done
@@ -220,33 +222,33 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 count_steps += 1
                 episode_steps += 1
                 
+                # Entrenamos si ya hemos alcanzado la frecuencia de entrenamiento
                 if count_steps % train_freq == 0:
-                    # Entrenamos si ya hemos alcanzado el número de steps máximo
                     actor_loss, critic_loss = agent.train()
-                    if actor_loss:
-                        episode_actor_losses.append(actor_loss)
-                    if critic_loss:
-                        episode_critic_losses.append(critic_loss)
+                    episode_actor_losses.append((actor_loss, train_freq))
+                    episode_critic_losses.append((critic_loss, train_freq))
+                    last_update_step = count_steps
 
                 if count_steps >= total_steps or episode_steps >= max_episode_steps:
                     break
         
-        # Entrenamos si vamos a comenzar un nuevo episodio
-        actor_loss, critic_loss = agent.train()
-        if actor_loss:
-            episode_actor_losses.append(actor_loss)
-        if critic_loss:
-            episode_critic_losses.append(critic_loss)
+        # Entrenamos si vamos a comenzar un nuevo episodio y no hemos entrenado en este paso
+        if count_steps > last_update_step:
+            actor_loss, critic_loss = agent.train()
+            steps_since_last_update = count_steps - last_update_step
+            episode_actor_losses.append((actor_loss,steps_since_last_update))
+            episode_critic_losses.append((critic_loss,steps_since_last_update))
         
         episode_total_reward = sum(episode_rewards)
         episode_average_reward = round(float(np.mean(episode_rewards)),2)
-        episode_average_actor_loss = np.mean(episode_actor_losses) if episode_actor_losses else 0
-        episode_average_critic_loss = round(float(np.mean(episode_critic_losses)), 4) if episode_critic_losses else 0
+
+        episode_average_actor_loss = sum(loss * weight for loss, weight in episode_actor_losses) / episode_steps
+        episode_average_critic_loss = round(sum(loss * weight for loss, weight in episode_critic_losses) / episode_steps, 4)
 
         total_rewards.extend(episode_rewards)
-        total_actor_losses.extend(episode_actor_losses)
-        total_critic_losses.extend(episode_critic_losses)
         total_episodes_steps.append(episode_steps)
+        weighted_actor_losses.append((episode_average_actor_loss, episode_steps))
+        weighted_critic_losses.append((episode_average_critic_loss, episode_steps))
 
         print(f'Episodio acabado tras {episode_steps} steps con una recompensa total de {episode_total_reward},',
               f'una recompensa promedio de {episode_average_reward} y unas pérdidas promedio de {episode_average_actor_loss}',
@@ -260,10 +262,11 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
     total_reward = sum(total_rewards)
     average_reward = round(total_reward / count_steps, 2)
-    average_actor_loss = np.mean(total_actor_losses)
-    average_critic_loss = round(float(np.mean(total_critic_losses)), 4)
     num_episodes = len(total_episodes_steps)
     max_steps = max(total_episodes_steps)
+
+    average_actor_loss = sum(loss * weight for loss, weight in weighted_actor_losses) / count_steps
+    average_critic_loss = round(sum(loss * weight for loss, weight in weighted_critic_losses) / count_steps, 4)
 
     print(f'\nEntrenamiento guardado tras {count_steps} steps con un total de {num_episodes}, una recompensa promedio de {average_reward}',
           f'y unas pérdidas promedio de {average_actor_loss} para el actor y {average_critic_loss} para el critic\n')
@@ -351,8 +354,8 @@ def main():
     # Steps totales que queremos alcanzar
     total_train_steps = 2000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
-    algorithm = 'DDDQL'
-    # algorithm = 'MAPPO'
+    # algorithm = 'DDDQL'
+    algorithm = 'MAPPO'
 
     train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm)
 
