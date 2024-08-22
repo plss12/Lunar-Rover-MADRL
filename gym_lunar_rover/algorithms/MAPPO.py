@@ -140,7 +140,10 @@ class MAPPOAgent:
         self.act_optimizer = Adam(learning_rate=self.act_lr)
         self.cri_optimizer = Adam(learning_rate=self.cri_lr)
         
-        self.actor.compile(loss='mse', optimizer=self.act_optimizer)
+        # self.actor.compile(loss='mse', optimizer=self.act_optimizer)
+        # self.critic.compile(loss='mse', optimizer=self.cri_optimizer)
+
+        self.actor.compile(optimizer=self.act_optimizer)
         self.critic.compile(loss='mse', optimizer=self.cri_optimizer)
 
         # self.actor.summary()
@@ -232,6 +235,7 @@ class MAPPOAgent:
         self.cri_lr = state['cri_lr']
         self.update_counter = state['update_counter']
 
+    #  Cálcular las recompensas acumuladas para el critic loss
     def compute_discounted_rewards(self, rewards, dones, gamma):
         discounted_rewards = np.zeros_like(rewards)
         cumulative_reward = 0
@@ -242,8 +246,10 @@ class MAPPOAgent:
             discounted_rewards[t] = cumulative_reward
         return discounted_rewards
     
+    # Cálcular las ventajas con GAE para el actor loss
     def compute_advantages(self, rewards, values, dones, gamma, lamda):
-        deltas = rewards + (1 - dones) * gamma * np.append(values[1:], 0) - values
+        next_values = tf.concat([values[1:], tf.zeros_like(values[:1])], axis=0)
+        deltas = rewards + (1 - dones) * gamma * next_values - values
         advantages = np.zeros_like(rewards)
         gae = 0
         for t in reversed(range(len(rewards))):
@@ -251,7 +257,6 @@ class MAPPOAgent:
             advantages[t] = gae
         return advantages
 
-    #  Cálcular las recompensas acumuladas para el actor loss teniendo en cuenta solo las acciones válidas y el clip
     def compute_actor_loss(self, obs_visits, infos, actions, advantages, available_actions, old_probs):
         current_probs  = self.actor([obs_visits, infos], training=True)
 
@@ -263,7 +268,6 @@ class MAPPOAgent:
         # Normalizamos las probabilidades de las acciones válidas para que sumen 1 y
         # nos quedamos con las probs de las acciones elegidas
         normalized_probs = normalize_valid_probs(masked_probs, mask)
-        action_probs = tf.reduce_sum(normalized_probs * tf.one_hot(actions, normalized_probs.shape[-1]), axis=-1)
         action_probs = tf.gather(normalized_probs, actions, batch_dims=1)
 
         # Cálculamos el ratio entre las nuevas y las antiguas probs y realizamos el clip
@@ -274,7 +278,6 @@ class MAPPOAgent:
 
         return actor_loss
 
-    # Cálcular las ventajas con GAE para el critic loss
     def compute_critic_loss(self, states, discounted_rewards):
         # Añadimos a los estados el estado inicial para obtener su value con el critic
         init_states = tf.tile(self.init_state, [tf.shape(states)[0], 1, 1, 1])
@@ -345,28 +348,21 @@ class MAPPOAgent:
         self.act_optimizer.apply_gradients(zip(total_actor_grads, self.actor.trainable_variables))
         self.cri_optimizer.apply_gradients(zip(total_critic_grads, self.critic.trainable_variables))
 
-        # Comprobamos que se hayan calculado pérdidas
-        if len(critic_losses)>0 and len(actor_losses)>0:
+        # Promediamos las pérdidas de las actualizaciones
+        # de los actores y críticos para cada agente
+        avg_actor_loss = np.mean(actor_losses)
+        avg_critic_loss = np.mean(critic_losses)
 
-            # Promediar las pérdidas de las actualizaciones
-            # de los actores y críticos para cada agente
-            avg_actor_loss = np.mean(actor_losses)
-            avg_critic_loss = np.mean(critic_losses)
+        # Limpiamos el buffer para recolectar nuevas experiencias con
+        # la nueva política resultante tras el entrenamiento
+        self.buffer.clear()
 
-            # Limpiamos el buffer para recolectar nuevas experiencias con
-            # la nueva política resultante tras el entrenamiento
-            self.buffer.clear()
+        # Actualizamos el valor de epsilon y lr
+        self.update_counter += 1
+        self.update_lr(avg_actor_loss, "Actor")
+        self.update_lr(avg_critic_loss, "Critic") 
 
-            # Actualizamos el valor de epsilon y lr
-            self.update_counter += 1
-            self.update_lr(avg_actor_loss, "Actor")
-            self.update_lr(avg_critic_loss, "Critic") 
-
-            return avg_actor_loss, round(avg_critic_loss, 4)
-
-        # De lo contratio todos los buffers estaban vacios y no se han calculado pérdidas
-        else:
-            return None, None
+        return avg_actor_loss, round(avg_critic_loss, 4)
         
     def save_train(self, actor_path, critic_path, state_path):
         self.save_models(actor_path, critic_path)
