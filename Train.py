@@ -18,16 +18,16 @@ action_dim = env.action_space.nvec[0]
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
     # Hiperparámetros
-    buffer_size = 25000
+    buffer_size = 50000
     batch_size = 64
 
     gamma = 0.9
 
     max_lr = 1e-2
-    min_lr = 1e-5
+    min_lr = 3e-5
     lr_decay_factor = 0.5
     patiente = 200
-    cooldown = 10
+    cooldown = 100
 
     max_epsilon = 1
     min_epsilon = 0.4
@@ -142,9 +142,10 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
 def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, parameters_path=None):
     # Hiperparámetros
-    gamma = 0.9
-    lamda = 0.5
+    gamma = 0.95
+    lamda = 0.95
     clip = 0.2
+    entropy_coef = 0.01
 
     max_lr = 1e-4
     min_lr = 1e-5
@@ -160,12 +161,12 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
     # Inicialización del agente MAPPO
     agent = MAPPOAgent(grid_size, observation_shape, info_shape, action_dim, n_agents, clip_rewards,
-                       gamma, lamda, clip, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
+                       gamma, lamda, clip, entropy_coef, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
                        dropout_rate, l1_rate, l2_rate, 
                        actor_path, critic_path, parameters_path)
     
     max_episode_steps = 5000
-    train_freq = 250
+    train_freq = 1000
     count_steps = 0
     last_update_step = 0
 
@@ -182,10 +183,6 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
         episode_critic_losses = []
         episode_steps = 0
 
-        # Añadimos el mapa inicial normalizado al agente
-        norm_init_map = normalize_map(env.unwrapped.initial_grid, env.unwrapped.rovers_mines_ids)
-        agent.add_init_state(norm_init_map)
-        
         # Comprobamos que haya Rovers sin terminar y se limita el número de steps
         # por episodio para no sobreentrenar situaciones inusuales
         while not all(dones) and episode_steps < max_episode_steps and count_steps < total_steps:
@@ -202,9 +199,10 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 # Normalizamos las posiciones en el rango 0-1
                 info = normalize_pos(rover.position + rover.mine_pos + rover.blender_pos, grid_size)
                 info = np.append(info, int(rover.mined))
-                # Normalizamos el mapa en el rango 0-1
-                norm_state = normalize_map(env.unwrapped.grid, env.unwrapped.rovers_mines_ids)                
-                action, act_prob, state_value = agent.act(norm_observation, norm_visits, norm_state, info, available_actions)
+                # Normalizamos el mapa del rover en el rango 0-1
+                norm_rovers_state = normalize_obs(rover.get_rovers_state())
+                norm_no_rovers_state = normalize_obs(rover.get_no_rovers_state())
+                action, act_prob, state_value = agent.act(norm_observation, norm_visits, norm_rovers_state, norm_no_rovers_state, info, available_actions)
                 step_act = rover.step(action)
 
                 # Una vez realizada la acción obtenemos el nuevo estado para 
@@ -213,7 +211,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 # Normalizamos la recompensa para reducir la magnitud de estas
                 norm_reward = normalize_reward(reward)
 
-                agent.add_experience(i, norm_observation, norm_visits, info, action, norm_reward, done, available_actions, norm_state, state_value, act_prob)
+                agent.add_experience(i, norm_observation, norm_visits, info, action, norm_reward, done, available_actions, norm_rovers_state, norm_no_rovers_state, state_value, act_prob)
 
                 dones[i] = done
 
@@ -223,7 +221,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 episode_steps += 1
                 
                 # Entrenamos si ya hemos alcanzado la frecuencia de entrenamiento
-                if count_steps % train_freq == 0:
+                if episode_steps % train_freq == 0:
                     actor_loss, critic_loss = agent.train()
                     episode_actor_losses.append((actor_loss, train_freq))
                     episode_critic_losses.append((critic_loss, train_freq))
@@ -234,10 +232,10 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
         
         # Entrenamos si vamos a comenzar un nuevo episodio y no hemos entrenado en este paso
         if count_steps > last_update_step:
-            actor_loss, critic_loss = agent.train()
             steps_since_last_update = count_steps - last_update_step
-            episode_actor_losses.append((actor_loss,steps_since_last_update))
-            episode_critic_losses.append((critic_loss,steps_since_last_update))
+            actor_loss, critic_loss = agent.train()
+            episode_actor_losses.append((actor_loss, steps_since_last_update))
+            episode_critic_losses.append((critic_loss, steps_since_last_update))
         
         episode_total_reward = sum(episode_rewards)
         episode_average_reward = round(float(np.mean(episode_rewards)),2)
@@ -352,7 +350,7 @@ def main():
     # o iniciar un entrenamiento con 0 steps
     initial_steps = 0
     # Steps totales que queremos alcanzar
-    total_train_steps = 2000000
+    total_train_steps = 10000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
     # algorithm = 'DDDQL'
     algorithm = 'MAPPO'

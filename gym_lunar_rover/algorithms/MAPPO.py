@@ -1,6 +1,6 @@
 import numpy as np
 from gym_lunar_rover.envs.Lunar_Rover_env import *
-from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau, normalize_valid_probs, combine_maps
+from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau, normalize_valid_probs
 import pickle
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -87,8 +87,8 @@ class ExperienceBuffer():
     def __init__(self, n_agents):
         self.buffers = [[] for _ in range(n_agents)]
 
-    def add_exp(self, agent_id, observation, visits, info, action, reward, done, available_action, state, value, old_prob):
-        self.buffers[agent_id].append((observation, visits, info, action, reward, done, available_action, state, value, old_prob))
+    def add_exp(self, agent_id, observation, visits, info, action, reward, done, available_action, norm_rovers_state, norm_no_rovers_state, value, old_prob):
+        self.buffers[agent_id].append((observation, visits, info, action, reward, done, available_action, norm_rovers_state, norm_no_rovers_state, value, old_prob))
 
     def get_agent_exps(self, agent_id):
         return zip(*self.buffers[agent_id])
@@ -101,7 +101,7 @@ class ExperienceBuffer():
 
 class MAPPOAgent:
     def __init__(self, map_shape, observation_shape, info_shape, action_dim, n_agents,
-                 clip_rewards, gamma, lamda, clip,
+                 clip_rewards, gamma, lamda, clip, entropy_coef,
                  lr, min_lr, lr_decay_factor, patience, cooldown, 
                  dropout_rate, l1_rate, l2_rate, 
                  actor_path=None, critic_path=None, parameters_path=None):
@@ -118,6 +118,9 @@ class MAPPOAgent:
 
         # Parámetro de lamda para el cálculo del GAE
         self.lamda = lamda
+
+        # Parámetro de entropía para añadir exploración
+        self.entropy_coef = entropy_coef
 
         # Parámetros de lr para los ajustes del critic y el actor
         self.act_lr = lr
@@ -139,9 +142,6 @@ class MAPPOAgent:
 
         self.act_optimizer = Adam(learning_rate=self.act_lr)
         self.cri_optimizer = Adam(learning_rate=self.cri_lr)
-        
-        # self.actor.compile(loss='mse', optimizer=self.act_optimizer)
-        # self.critic.compile(loss='mse', optimizer=self.cri_optimizer)
 
         self.actor.compile(optimizer=self.act_optimizer)
         self.critic.compile(loss='mse', optimizer=self.cri_optimizer)
@@ -156,7 +156,7 @@ class MAPPOAgent:
         # Iniciamos el Buffer
         self.buffer = ExperienceBuffer(self.n_agents)
 
-    def act(self, observation, visits, state, info, available_actions):
+    def act(self, observation, visits, norm_rovers_state, norm_no_rovers_state, info, available_actions):
         # Ajustamos las dimensiones de la observación y la info
         observation = np.expand_dims(observation, axis=0)
         observation = np.expand_dims(observation, axis=-1)
@@ -183,24 +183,21 @@ class MAPPOAgent:
         action_prob = tf.reduce_sum(dist.prob(action)).numpy()
 
         # Combinamos los estados para obtener el value del critic
-        state = np.expand_dims(np.array(state), axis=-1)
-        state = np.expand_dims(np.array(state), axis=0)
-        combined_map = combine_maps(tf.convert_to_tensor(state, dtype=tf.float32), self.init_state)
+        norm_rovers_state = np.expand_dims(norm_rovers_state, axis=0)
+        norm_rovers_state = np.expand_dims(norm_rovers_state, axis=-1)
+        norm_no_rovers_state = np.expand_dims(norm_no_rovers_state, axis=0)
+        norm_no_rovers_state = np.expand_dims(norm_no_rovers_state, axis=-1)
+        complete_state = np.concatenate([norm_rovers_state, norm_no_rovers_state], axis=-1)
 
-        value = self.critic(combined_map, training=False)[0][0].numpy()
+        value = self.critic(complete_state, training=False)[0][0].numpy()
 
         return action, action_prob, value
 
-    def add_init_state(self, init_state):
-        init_state = np.expand_dims(np.array(init_state), axis=-1)
-        init_state = np.expand_dims(np.array(init_state), axis=0)
-        self.init_state = tf.convert_to_tensor(init_state, dtype=tf.float32)
-
-    def add_experience(self, agent_id, observation, visits, info, action, reward, done, available_action, state, value, prob):
+    def add_experience(self, agent_id, observation, visits, info, action, reward, done, available_action, norm_rovers_state, norm_no_rovers_state, value, prob):
         if self.clip_rewards:
             reward = np.clip(reward, -1.0, 1.0)
 
-        self.buffer.add_exp(agent_id, observation, visits, info, action, reward, done, available_action, state, value, prob)
+        self.buffer.add_exp(agent_id, observation, visits, info, action, reward, done, available_action, norm_rovers_state, norm_no_rovers_state, value, prob)
 
     def update_lr(self, loss, act_cri):
         # Disminuimos el lr del critic o actor con la estrategia plateau
@@ -276,13 +273,20 @@ class MAPPOAgent:
         clipped_ratio = tf.clip_by_value(ratio, 1 - self.clip, 1 + self.clip)
         actor_loss = -tf.reduce_mean(tf.minimum(ratio * advantages, clipped_ratio * advantages))
 
-        return actor_loss
+        # Calculamos la entropía de la distribución de probabilidades actual
+        dist = tfp.distributions.Categorical(probs=normalized_probs)
+        entropy = dist.entropy()
+
+        entropy_loss = -self.entropy_coef * tf.reduce_mean(entropy)
+
+        # Pérdida total del actor incluyendo el término de entropía
+        total_loss = actor_loss + entropy_loss
+
+        return total_loss
 
     def compute_critic_loss(self, states, discounted_rewards):
         # Añadimos a los estados el estado inicial para obtener su value con el critic
-        init_states = tf.tile(self.init_state, [tf.shape(states)[0], 1, 1, 1])
-        combined_states = combine_maps(states, init_states)
-        values = self.critic(combined_states, training=True)
+        values = self.critic(states, training=True)
         critic_loss = tf.reduce_mean(tf.square(discounted_rewards - values))
         return critic_loss
 
@@ -298,10 +302,10 @@ class MAPPOAgent:
         # Recorremos las experiencias de los agentes de uno en uno
         for i in range(self.n_agents):
             # Comprobamos que el agente tenga experiencias
-            if len(self.buffer.buffers[i])<=0:
+            if len(self.buffer.buffers[i])<=0:      
                 continue
 
-            observations, visits, infos, actions, rewards, dones, available_actions, states, values, old_probs = self.buffer.get_agent_exps(i)
+            observations, visits, infos, actions, rewards, dones, available_actions, norm_rovers_state, norm_no_rovers_state, values, old_probs = self.buffer.get_agent_exps(i)
 
             # Convertir arrays a tensores
             observations = tf.convert_to_tensor(observations, dtype=tf.float32)
@@ -314,8 +318,13 @@ class MAPPOAgent:
             actions = tf.convert_to_tensor(actions, dtype=tf.int32)
             rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
             dones = tf.convert_to_tensor(dones, dtype=tf.float32)
-            states = tf.convert_to_tensor(states, dtype=tf.float32)
-            states = tf.expand_dims(states, axis=-1)
+
+            norm_rovers_state = tf.convert_to_tensor(norm_rovers_state, dtype=tf.float32)
+            norm_rovers_state = tf.expand_dims(norm_rovers_state, axis=-1)
+            norm_no_rovers_state = tf.convert_to_tensor(norm_no_rovers_state, dtype=tf.float32)
+            norm_no_rovers_state = tf.expand_dims(norm_no_rovers_state, axis=-1)
+            complete_states = tf.concat([norm_rovers_state, norm_no_rovers_state], axis=-1)
+
             values = tf.convert_to_tensor(values, dtype=tf.float32)
             old_probs = tf.convert_to_tensor(old_probs, dtype=tf.float32)
 
@@ -327,7 +336,7 @@ class MAPPOAgent:
                 advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-10)
                 
                 actor_loss = self.compute_actor_loss(obs_visits, infos, actions, advantages, available_actions, old_probs)
-                critic_loss = self.compute_critic_loss(states, discounted_rewards)
+                critic_loss = self.compute_critic_loss(complete_states, discounted_rewards)
 
             # Calcular y acumular los gradientes          
             actor_grads = tape_actor.gradient(actor_loss, self.actor.trainable_variables)
