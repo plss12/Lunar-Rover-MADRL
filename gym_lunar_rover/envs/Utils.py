@@ -151,16 +151,6 @@ def normalize_visits(visits):
     else :
         return (visits - min) / (max - min)
 
-# Normalizamos el mapa en el rango 0 a 1 para la entrada del 
-# Critic en el algoritmo MAPPO
-def normalize_map(map, objs):
-    min = LunarObjects.FLOOR.value
-    max_n = max(list(objs.keys()) + list(objs.values()))
-
-    map = (map - min) / (max_n - min)
-
-    return map
-
 def normalize_reward(reward): 
     return np.sign(reward) * np.log(1 + abs(reward))
 

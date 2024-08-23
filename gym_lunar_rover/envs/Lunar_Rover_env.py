@@ -239,13 +239,15 @@ class Rover:
         # Añadimos el objeto que realmente hay en la posición que ocupa el rover para no ocultarlo
         observation[tuple(rover_pos.T)] = self.env.initial_grid[x, y]
 
+        norm_observation = observation.copy()
+
         # Normalizar otros rovers visibles
         all_rover_ids = list(self.env.rovers_mines_ids.keys())
         all_rover_ids.remove(self.agent_id)
         for rover_id in all_rover_ids:
             other_rover_pos = np.argwhere(observation == rover_id)
             if other_rover_pos.size > 0:
-                observation[tuple(other_rover_pos.T)] = RoverObsObjects.OTHER_ROVER.value
+                norm_observation[tuple(other_rover_pos.T)] = RoverObsObjects.OTHER_ROVER.value
 
         # Normalizar otras minas visibles
         all_mine_ids = list(self.env.rovers_mines_ids.values())
@@ -253,23 +255,93 @@ class Rover:
         for mine_id in all_mine_ids:
             other_mines_pos = np.argwhere(observation == mine_id)
             if other_mines_pos.size > 0:
-                observation[tuple(other_mines_pos.T)] = RoverObsObjects.OTHER_MINE.value
+                norm_observation[tuple(other_mines_pos.T)] = RoverObsObjects.OTHER_MINE.value
         
         # Normalizar la mina y el blender asociado al propio Rover, si es visible, según si se ha
         # realizado el objetivo en esa posición o no, para orientar al Rover
         if mine_position.size > 0:
             if self.mined:
-                observation[tuple(mine_position.T)] = RoverObsObjects.MINE_MINED.value
+                norm_observation[tuple(mine_position.T)] = RoverObsObjects.MINE_MINED.value
             else:
-                observation[tuple(mine_position.T)] = RoverObsObjects.MINE_NOT_MINED.value
+                norm_observation[tuple(mine_position.T)] = RoverObsObjects.MINE_NOT_MINED.value
 
         if blender_position.size > 0:
             if self.mined:
-                observation[tuple(blender_position.T)] = RoverObsObjects.BLENDER_MINED.value
+                norm_observation[tuple(blender_position.T)] = RoverObsObjects.BLENDER_MINED.value
             else:
-                observation[tuple(blender_position.T)] = RoverObsObjects.BLENDER_NOT_MINED.value
+                norm_observation[tuple(blender_position.T)] = RoverObsObjects.BLENDER_NOT_MINED.value
 
-        return observation, visit_observation, reward
+        return norm_observation, visit_observation, reward
+    
+    def get_rovers_state(self):
+        state = self.env.grid
+        norm_state = state.copy()
+
+        all_rover_ids = list(self.env.rovers_mines_ids.keys())
+        all_rover_ids.remove(self.agent_id)
+        for rover_id in all_rover_ids:
+            other_rover_pos = np.argwhere(state == rover_id)
+            if other_rover_pos.size > 0:
+                norm_state[tuple(other_rover_pos.T)] = RoverObsObjects.OTHER_ROVER.value
+
+        # Normalizar otras minas visibles
+        all_mine_ids = list(self.env.rovers_mines_ids.values())
+        all_mine_ids.remove(self.mine_id)
+        for mine_id in all_mine_ids:
+            other_mines_pos = np.argwhere(state == mine_id)
+            if other_mines_pos.size > 0:
+                norm_state[tuple(other_mines_pos.T)] = RoverObsObjects.OTHER_MINE.value
+
+        rover_pos = np.argwhere(state == self.agent_id)
+        norm_state[tuple(rover_pos.T)] = RoverObsObjects.OUT.value
+
+        mine_position = np.argwhere(state == self.mine_id)
+        blender_position = np.argwhere(state == LunarObjects.BLENDER.value)
+
+        if self.mined:
+            norm_state[tuple(mine_position.T)] = RoverObsObjects.MINE_MINED.value
+        else:
+            norm_state[tuple(mine_position.T)] = RoverObsObjects.MINE_NOT_MINED.value
+
+        if self.mined:
+            norm_state[tuple(blender_position.T)] = RoverObsObjects.BLENDER_MINED.value
+        else:
+            norm_state[tuple(blender_position.T)] = RoverObsObjects.BLENDER_NOT_MINED.value
+        
+        return norm_state
+    
+    def get_no_rovers_state(self):
+        state = self.env.grid
+        norm_state = state.copy()
+
+        all_rover_ids = list(self.env.rovers_mines_ids.keys())
+        for rover_id in all_rover_ids:
+            other_rover_pos = np.argwhere(state == rover_id)
+            if other_rover_pos.size > 0:
+                norm_state[tuple(other_rover_pos.T)] = self.env.initial_grid[tuple(other_rover_pos.T)]
+
+        # Normalizar otras minas visibles
+        all_mine_ids = list(self.env.rovers_mines_ids.values())
+        all_mine_ids.remove(self.mine_id)
+        for mine_id in all_mine_ids:
+            other_mines_pos = np.argwhere(state == mine_id)
+            if other_mines_pos.size > 0:
+                norm_state[tuple(other_mines_pos.T)] = RoverObsObjects.OTHER_MINE.value
+
+        mine_position = np.argwhere(state == self.mine_id)
+        blender_position = np.argwhere(state == LunarObjects.BLENDER.value)
+
+        if self.mined:
+            norm_state[tuple(mine_position.T)] = RoverObsObjects.MINE_MINED.value
+        else:
+            norm_state[tuple(mine_position.T)] = RoverObsObjects.MINE_NOT_MINED.value
+
+        if self.mined:
+            norm_state[tuple(blender_position.T)] = RoverObsObjects.BLENDER_MINED.value
+        else:
+            norm_state[tuple(blender_position.T)] = RoverObsObjects.BLENDER_NOT_MINED.value
+        
+        return norm_state
 
     # Función para obtener los movimientos posibles para un Rover, teniendo
     # en cuenta condiciones como no poder salir del mapa
@@ -301,7 +373,7 @@ class Rover:
                     valid_movements.append(action)
 
             return valid_movements
-    
+        
 class LunarEnv(gym.Env):
 
     metadata = {"render_modes": ["human","train"], "render_fps": 120}
