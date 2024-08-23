@@ -21,7 +21,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     buffer_size = 50000
     batch_size = 64
 
-    gamma = 0.9
+    gamma = 0.95
 
     max_lr = 1e-2
     min_lr = 3e-5
@@ -37,8 +37,8 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
     l1_rate = 0.0
     l2_rate = 0.0
 
-    update_target_freq = 300
-    warm_up_steps = 1000
+    update_target_freq = 1000 #500
+    warm_up_steps = 2500
     clip_rewards = False
     agent = DoubleDuelingDQNAgent(observation_shape, info_shape, action_dim, buffer_size, batch_size, warm_up_steps, clip_rewards,
                                 max_epsilon, min_epsilon, epsilon_decay, gamma, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
@@ -352,8 +352,8 @@ def main():
     # Steps totales que queremos alcanzar
     total_train_steps = 10000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
-    # algorithm = 'DDDQL'
-    algorithm = 'MAPPO'
+    algorithm = 'DDDQL'
+    # algorithm = 'MAPPO'
 
     train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm)
 
