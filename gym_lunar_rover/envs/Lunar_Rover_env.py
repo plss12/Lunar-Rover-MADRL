@@ -68,10 +68,11 @@ class Rover:
         # comprobaciones extras por no haber movimiento
         elif action == 0:
             # Penalización por gasto de energía en descanso y no explorar
-            reward += RoverRewards.WAIT.value
+            reward += RoverRewards.WAIT.value * (self.visits_maps[x, y] + 1)
             self.last_reward += reward
             self.total_reward += reward
             self.env.total_reward += reward
+            self.visits_maps[x, y] += 1
             obs, visits, obs_rew = self.get_observation()
             info = {}
 
