@@ -352,8 +352,8 @@ def main():
     # Steps totales que queremos alcanzar
     total_train_steps = 10000000
     # Algoritmo que queremos usar (DDDQL o MAPPO)
-    algorithm = 'DDDQL'
-    # algorithm = 'MAPPO'
+    # algorithm = 'DDDQL'
+    algorithm = 'MAPPO'
 
     train_by_steps(steps_before_save, initial_steps, total_train_steps, algorithm)
 
