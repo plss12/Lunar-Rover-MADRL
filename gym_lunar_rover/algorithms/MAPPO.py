@@ -132,6 +132,10 @@ class MAPPOAgent:
         # Cargamos los parámetros si existe un entrenamiento previo
         if parameters_path:
             self.load_parameters(parameters_path)
+            if self.act_lr < min_lr:
+                self.act_lr = min_lr
+            if self.cri_lr < min_lr:
+                self.cri_lr = min_lr
 
         self.actor = actor_model(observation_shape, info_shape, action_dim, dropout_rate, l1_rate, l2_rate)
         self.critic = critic_model(map_shape, dropout_rate, l1_rate, l2_rate)
@@ -385,18 +389,21 @@ class InferenceMAPPOAgent:
         self.actor.compile(loss='mse', optimizer='adam')
         self.actor.load_weights(model_path)
 
-    def act(self, observation, info, available_actions):
+    def act(self, observation, visits, info, available_actions):
         # Ajustamos las dimensiones de la observación y la info
         observation = np.expand_dims(observation, axis=0)
         observation = np.expand_dims(observation, axis=-1)
+        visits = np.expand_dims(visits, axis=0)
+        visits = np.expand_dims(visits, axis=-1)
+        obs_visits = np.concatenate([observation, visits], axis=-1)
         info = np.expand_dims(info, axis=0)
         
         # Predecimos las probabilidades y usamos una máscara para evitar las inválidas
-        probs = self.actor([observation, info], training=False)
+        prob = self.actor([obs_visits, info], training=False)   
 
-        mask = np.full(probs.shape, -np.inf)
+        mask = np.full(prob.shape, -np.inf)
         mask[0, available_actions] = 0
-        masked_probs = probs + mask
+        masked_probs = prob + mask
 
         # Cogemos la mejor acción dentro de las válidas
         return np.argmax(masked_probs)
