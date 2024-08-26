@@ -147,8 +147,8 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     clip = 0.2
     entropy_coef = 0.01
 
-    max_lr = 1e-4
-    min_lr = 1e-5
+    max_lr = 1e-3
+    min_lr = 5e-5
     lr_decay_factor = 0.5
     patiente = 10
     cooldown = 5
@@ -166,7 +166,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                        actor_path, critic_path, parameters_path)
     
     max_episode_steps = 5000
-    train_freq = 1000
+    train_freq = 500
     count_steps = 0
     last_update_step = 0
 
@@ -345,7 +345,7 @@ def train_by_steps(steps_before_save, initial_steps, total_train_steps, algorith
 
 def main():
     # Steps que queremos realizar antes de cada guardado
-    steps_before_save = 10000
+    steps_before_save = 100000
     # Steps del modelo que queremos continuar entrenando
     # o iniciar un entrenamiento con 0 steps
     initial_steps = 0
