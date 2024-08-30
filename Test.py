@@ -32,7 +32,7 @@ def test(algorithm, steps):
 
     # Se prueba el modelo en distintos entornos fijados con semillas 
     # para igualar las comparaciones entre algoritmos y modelos
-    seeds = [1,2,3,4,5]
+    seeds = [1,2,4,5]
     
     for i, seed in enumerate(seeds):
         test_env.reset(seed)
@@ -63,7 +63,7 @@ def test(algorithm, steps):
 
 def main():
     # Número de steps del modelo que queremos testear
-    model_steps = 1500000
+    model_steps = 3750000
     # Algoritmo que queremos testear (DDDQL o MAPPO)
     algorithm = 'DDDQL'
     # algorithm = 'MAPPO'
