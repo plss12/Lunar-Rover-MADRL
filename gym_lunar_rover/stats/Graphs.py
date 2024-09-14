@@ -113,10 +113,10 @@ def main():
     
     match algorithm:
         case 'DDDQL':
-            df = pd.read_csv('training_metrics_dddql.csv')
+            df = pd.read_csv('saved_trains/training_metrics_dddql.csv')
             loss = 'average_loss'
         case 'MAPPO':
-            df = pd.read_csv('training_metrics_mappo.csv')
+            df = pd.read_csv('saved_trains/training_metrics_mappo.csv')
             loss = 'average_actor_loss'
 
     loss_graph(df, loss, algorithm)
