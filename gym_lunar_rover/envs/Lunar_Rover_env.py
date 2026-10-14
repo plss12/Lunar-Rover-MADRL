@@ -32,7 +32,8 @@ class Rover:
         # Como este rover ya ha realizado el turno 
         # pasamos el turno al siguiente rover no terminado
         self.env.next_rover()
-        # Comprobamos si el rover está terminado para no 
+        x, y = self.position
+        # Comprobamos si el rover está terminado para no
         # continuar con el proceso del movimiento
         if self.done:
             obs, visits, obs_rew = self.get_observation()
@@ -51,7 +52,6 @@ class Rover:
             self.env.total_reward += reward
             return obs, visits, reward, self.done, info
 
-        x, y = self.position
         # Arriba
         if action == 1:
             new_x, new_y = x - 1, y
@@ -111,12 +111,12 @@ class Rover:
                 return obs, visits, reward, self.done, info
             
             # Recompensa positiva si ha llegado por primera vez a la mina
-            elif new_pos == self.mine_id and self.mined == False: 
+            elif new_pos == self.mine_id and not self.mined:
                 reward += RoverRewards.MINE.value
                 self.mined = True
                 self.near_distance = np.inf
             # Recompensa positiva si ha llegado al punto de recogida tras minar
-            elif new_pos == LunarObjects.BLENDER.value and self.mined == True:
+            elif new_pos == LunarObjects.BLENDER.value and self.mined:
                 reward += RoverRewards.BLENDER.value
                 self.done = True
 
@@ -409,7 +409,13 @@ class LunarEnv(gym.Env):
             self.clock = pygame.time.Clock()
 
     def reset(self, seed=None, options=None):
-        
+        super().reset(seed=seed)
+        # La generación del mapa usa el generador global de numpy (TestEnv
+        # depende de ello para reproducir los mapas de evaluación), así que
+        # la semilla se aplica también a ese generador
+        if seed is not None:
+            np.random.seed(seed)
+
         self.total_reward = 0
 
         # Inicializamos el mapa y creamos los agentes y sus objetivos
@@ -486,7 +492,7 @@ class LunarEnv(gym.Env):
     
     # Obtiene la suma de las recompensas de todos los rovers
     def _get_total_reward(self):
-        return sum([rover.reward for rover in self.rovers])
+        return sum([rover.total_reward for rover in self.rovers])
     
     # Obtiene un bool según si han terminado o no todos los rovers
     def _get_done(self):
@@ -496,7 +502,9 @@ class LunarEnv(gym.Env):
     def _get_obs(self):
         obs = []
         for rover in self.rovers:
-            obs.append(rover.get_observation()[0])
+            # Se convierte al dtype del observation_space para que las observaciones
+            # pertenezcan a él (np int por defecto es int64 en la mayoría de plataformas)
+            obs.append(rover.get_observation()[0].astype(np.int32))
         return tuple(obs)
     
     # Obtiene una lista con el estado de si los rovers han terminado
@@ -551,7 +559,7 @@ class LunarEnv(gym.Env):
                 # print(f"Rover {rover.agent_id} ya terminado con recompensa {rover.reward}")
             else:
                 rover_step = rover.step(action)
-                rewards.append(rover_step[1])
+                rewards.append(rover_step[2])
                 # print(f"Rover {rover.agent_id} realiza movimiento {action} con recompensa {rover.reward}")
 
         # Devuelve todas las observaciones, la reward total del step y si han acabado todos
