@@ -101,7 +101,7 @@ class ExperienceBuffer():
 
 class MAPPOAgent:
     def __init__(self, map_shape, observation_shape, info_shape, action_dim, n_agents,
-                 clip_rewards, gamma, lamda, clip, entropy_coef,
+                 clip_rewards, gamma, lamda, clip, entropy_coef, epochs,
                  lr, min_lr, lr_decay_factor, patience, cooldown, 
                  dropout_rate, l1_rate, l2_rate, 
                  actor_path=None, critic_path=None, parameters_path=None):
@@ -121,6 +121,11 @@ class MAPPOAgent:
 
         # Parámetro de entropía para añadir exploración
         self.entropy_coef = entropy_coef
+
+        # Número de épocas, o pasadas sobre las mismas experiencias, en cada entrenamiento.
+        # Con una sola época el ratio entre la nueva y la antigua política siempre es 1 y
+        # el clip de PPO nunca actúa (Schulman et al., 2017; Yu et al., 2022)
+        self.epochs = epochs
 
         # Parámetros de lr para los ajustes del critic y el actor
         self.act_lr = lr
@@ -265,7 +270,9 @@ class MAPPOAgent:
             advantages[t] = gae
         return advantages
 
-    def compute_actor_loss(self, obs_visits, infos, actions, advantages, available_actions, old_probs):
+    # Probabilidades de la política actual, restringidas a las acciones válidas, y
+    # probabilidad de la acción elegida en cada experiencia
+    def compute_action_probs(self, obs_visits, infos, actions, available_actions):
         current_probs  = self.actor([obs_visits, infos], training=True)
 
         # Creamos y aplicamos la máscara utilizando 0 para acciones no válidas
@@ -277,6 +284,11 @@ class MAPPOAgent:
         # nos quedamos con las probs de las acciones elegidas
         normalized_probs = normalize_valid_probs(masked_probs, mask)
         action_probs = tf.gather(normalized_probs, actions, batch_dims=1)
+
+        return normalized_probs, action_probs
+
+    def compute_actor_loss(self, obs_visits, infos, actions, advantages, available_actions, old_probs):
+        normalized_probs, action_probs = self.compute_action_probs(obs_visits, infos, actions, available_actions)
 
         # Cálculamos el ratio entre las nuevas y las antiguas probs y realizamos el clip
         ratio = action_probs / old_probs
@@ -303,91 +315,98 @@ class MAPPOAgent:
         critic_loss = tf.reduce_mean(tf.square(discounted_rewards - values))
         return critic_loss
 
+    # Convierte las experiencias de un agente en tensores y calcula sus retornos y ventajas.
+    # Se hace una sola vez antes de las épocas, con los values obtenidos al recoger las
+    # experiencias, para que todas las épocas optimicen el mismo objetivo (como en PPO)
+    def prepare_agent_batch(self, agent_id, last_state):
+        observations, visits, infos, actions, rewards, dones, available_actions, norm_rovers_state, norm_no_rovers_state, values, old_probs = self.buffer.get_agent_exps(agent_id)
+
+        # Si la trayectoria no termina en un estado final se estima lo que falta con el critic
+        last_value = 0.0
+        if not dones[-1]:
+            if last_state is None:
+                raise ValueError(f"El agente {agent_id} no ha terminado y no se ha indicado su último estado")
+            last_value = self.state_value(*last_state)
+
+        # Convertir arrays a tensores
+        observations = tf.convert_to_tensor(observations, dtype=tf.float32)
+        observations = tf.expand_dims(observations, axis=-1)
+        visits = tf.convert_to_tensor(visits, dtype=tf.float32)
+        visits = tf.expand_dims(visits, axis=-1)
+        obs_visits = tf.concat([observations, visits], axis=-1)
+
+        infos = tf.convert_to_tensor(infos, dtype=tf.float32)
+        actions = tf.convert_to_tensor(actions, dtype=tf.int32)
+        rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
+        dones = tf.convert_to_tensor(dones, dtype=tf.float32)
+
+        norm_rovers_state = tf.convert_to_tensor(norm_rovers_state, dtype=tf.float32)
+        norm_rovers_state = tf.expand_dims(norm_rovers_state, axis=-1)
+        norm_no_rovers_state = tf.convert_to_tensor(norm_no_rovers_state, dtype=tf.float32)
+        norm_no_rovers_state = tf.expand_dims(norm_no_rovers_state, axis=-1)
+        complete_states = tf.concat([norm_rovers_state, norm_no_rovers_state], axis=-1)
+
+        values = tf.convert_to_tensor(values, dtype=tf.float32)
+        old_probs = tf.convert_to_tensor(old_probs, dtype=tf.float32)
+
+        # Calcular las recompensas acumuladas y ventajas y normalizar estas últimas
+        discounted_rewards = self.compute_discounted_rewards(rewards, dones, self.gamma, last_value)
+        advantages = self.compute_advantages(rewards, values, dones, self.gamma, self.lamda, last_value)
+        advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-10)
+
+        return obs_visits, infos, actions, advantages, available_actions, old_probs, complete_states, discounted_rewards
+
     # last_states contiene, para cada agente, el estado (norm_rovers_state, norm_no_rovers_state)
     # en el que ha quedado al recoger las experiencias, o None si ha terminado. Las trayectorias
     # se cortan cada train_freq pasos o al alcanzar el máximo de pasos del episodio, por lo que
     # el value de ese estado se usa para completar los retornos y las ventajas (bootstrap), igual
-    # que hace MAPPO (Yu et al., 2022) con la última observación al final de cada rollout
+    # que hace MAPPO (Yu et al., 2022) con la última observación al final de cada rollout.
+    # Las experiencias se recorren durante self.epochs épocas, con una actualización del actor
+    # y del critic por época, usando en cada una el lote completo de todos los agentes
     def train(self, last_states):
+
+        # Preparamos las experiencias de los agentes que las tengan, ya que
+        # los Rovers que han terminado dejan de recolectar experiencias
+        batches = [self.prepare_agent_batch(i, last_states[i])
+                   for i in range(self.n_agents) if len(self.buffer.buffers[i]) > 0]
+        if not batches:
+            raise ValueError("No hay experiencias en el buffer con las que entrenar")
 
         actor_losses = []
         critic_losses = []
 
-        # Inicializamos los acumuladores de gradientes
-        total_actor_grads = [tf.zeros_like(var) for var in self.actor.trainable_variables]
-        total_critic_grads = [tf.zeros_like(var) for var in self.critic.trainable_variables]
+        for _ in range(self.epochs):
+            # Inicializamos los acumuladores de gradientes
+            total_actor_grads = [tf.zeros_like(var) for var in self.actor.trainable_variables]
+            total_critic_grads = [tf.zeros_like(var) for var in self.critic.trainable_variables]
 
-        # Recorremos las experiencias de los agentes de uno en uno
-        for i in range(self.n_agents):
-            # Comprobamos que el agente tenga experiencias
-            if len(self.buffer.buffers[i])<=0:
-                continue
+            # Recorremos las experiencias de los agentes de uno en uno
+            for obs_visits, infos, actions, advantages, available_actions, old_probs, complete_states, discounted_rewards in batches:
+                # Actualizar el actor y el crítico
+                with tf.GradientTape() as tape_actor, tf.GradientTape() as tape_critic:
+                    actor_loss = self.compute_actor_loss(obs_visits, infos, actions, advantages, available_actions, old_probs)
+                    critic_loss = self.compute_critic_loss(complete_states, discounted_rewards)
 
-            observations, visits, infos, actions, rewards, dones, available_actions, norm_rovers_state, norm_no_rovers_state, values, old_probs = self.buffer.get_agent_exps(i)
+                # Calcular y acumular los gradientes
+                actor_grads = tape_actor.gradient(actor_loss, self.actor.trainable_variables)
+                critic_grads = tape_critic.gradient(critic_loss, self.critic.trainable_variables)
 
-            # Si la trayectoria no termina en un estado final se estima lo que falta con el critic
-            last_value = 0.0
-            if not dones[-1]:
-                if last_states[i] is None:
-                    raise ValueError(f"El agente {i} no ha terminado y no se ha indicado su último estado")
-                last_value = self.state_value(*last_states[i])
+                total_actor_grads = [grad_acc + grad for grad_acc, grad in zip(total_actor_grads, actor_grads)]
+                total_critic_grads = [grad_acc + grad for grad_acc, grad in zip(total_critic_grads, critic_grads)]
 
-            # Convertir arrays a tensores
-            observations = tf.convert_to_tensor(observations, dtype=tf.float32)
-            observations = tf.expand_dims(observations, axis=-1)
-            visits = tf.convert_to_tensor(visits, dtype=tf.float32)
-            visits = tf.expand_dims(visits, axis=-1)
-            obs_visits = tf.concat([observations, visits], axis=-1)
+                actor_losses.append(actor_loss.numpy())
+                critic_losses.append(critic_loss.numpy())
 
-            infos = tf.convert_to_tensor(infos, dtype=tf.float32)
-            actions = tf.convert_to_tensor(actions, dtype=tf.int32)
-            rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
-            dones = tf.convert_to_tensor(dones, dtype=tf.float32)
+            # Promediar los gradientes entre los agentes que han aportado experiencias
+            total_actor_grads = [grad / len(batches) for grad in total_actor_grads]
+            total_critic_grads = [grad / len(batches) for grad in total_critic_grads]
 
-            norm_rovers_state = tf.convert_to_tensor(norm_rovers_state, dtype=tf.float32)
-            norm_rovers_state = tf.expand_dims(norm_rovers_state, axis=-1)
-            norm_no_rovers_state = tf.convert_to_tensor(norm_no_rovers_state, dtype=tf.float32)
-            norm_no_rovers_state = tf.expand_dims(norm_no_rovers_state, axis=-1)
-            complete_states = tf.concat([norm_rovers_state, norm_no_rovers_state], axis=-1)
+            # Aplicar los gradientes promediados
+            self.act_optimizer.apply_gradients(zip(total_actor_grads, self.actor.trainable_variables))
+            self.cri_optimizer.apply_gradients(zip(total_critic_grads, self.critic.trainable_variables))
 
-            values = tf.convert_to_tensor(values, dtype=tf.float32)
-            old_probs = tf.convert_to_tensor(old_probs, dtype=tf.float32)
-
-            # Actualizar el actor y el crítico
-            with tf.GradientTape() as tape_actor, tf.GradientTape() as tape_critic:
-                # Calcular las recompensas acumuladas y ventajas y normalizar estas últimas
-                discounted_rewards = self.compute_discounted_rewards(rewards, dones, self.gamma, last_value)
-                advantages = self.compute_advantages(rewards, values, dones, self.gamma, self.lamda, last_value)
-                advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-10)
-
-                actor_loss = self.compute_actor_loss(obs_visits, infos, actions, advantages, available_actions, old_probs)
-                critic_loss = self.compute_critic_loss(complete_states, discounted_rewards)
-
-            # Calcular y acumular los gradientes
-            actor_grads = tape_actor.gradient(actor_loss, self.actor.trainable_variables)
-            critic_grads = tape_critic.gradient(critic_loss, self.critic.trainable_variables)
-
-            # Acumular los gradientes
-            total_actor_grads = [grad_acc + grad for grad_acc, grad in zip(total_actor_grads, actor_grads)]
-            total_critic_grads = [grad_acc + grad for grad_acc, grad in zip(total_critic_grads, critic_grads)]
-
-            actor_losses.append(actor_loss.numpy())
-            critic_losses.append(critic_loss.numpy())
-
-        # Promediar los gradientes entre los agentes que han aportado experiencias, ya que
-        # los Rovers que han terminado dejan de hacerlo y no deben reducir la actualización
-        n_trained = len(actor_losses)
-        if n_trained == 0:
-            raise ValueError("No hay experiencias en el buffer con las que entrenar")
-        total_actor_grads = [grad / n_trained for grad in total_actor_grads]
-        total_critic_grads = [grad / n_trained for grad in total_critic_grads]
-
-        # Aplicar los gradientes promediados
-        self.act_optimizer.apply_gradients(zip(total_actor_grads, self.actor.trainable_variables))
-        self.cri_optimizer.apply_gradients(zip(total_critic_grads, self.critic.trainable_variables))
-
-        # Promediamos las pérdidas de las actualizaciones
-        # de los actores y críticos para cada agente
+        # Promediamos las pérdidas de los actores y críticos
+        # de todos los agentes durante todas las épocas
         avg_actor_loss = np.mean(actor_losses)
         avg_critic_loss = np.mean(critic_losses)
 
@@ -395,7 +414,7 @@ class MAPPOAgent:
         # la nueva política resultante tras el entrenamiento
         self.buffer.clear()
 
-        # Actualizamos el valor de epsilon y lr
+        # Actualizamos el lr
         self.update_counter += 1
         self.update_lr(avg_actor_loss, "Actor")
         self.update_lr(avg_critic_loss, "Critic")

@@ -7,11 +7,13 @@ from gym_lunar_rover.algorithms.MAPPO import MAPPOAgent
 AVAILABLE_ACTIONS = [0, 1, 2, 3, 4]
 
 
-def make_agent(map_shape: int = 8) -> MAPPOAgent:
+def make_agent(
+    map_shape: int = 8, epochs: int = 1, lr: float = 1e-3, entropy_coef: float = 0.01
+) -> MAPPOAgent:
     return MAPPOAgent(
         map_shape, 7, 7, 5, 2,
-        clip_rewards=False, gamma=0.9, lamda=0.95, clip=0.2, entropy_coef=0.01,
-        lr=1e-3, min_lr=1e-5, lr_decay_factor=0.5, patience=10, cooldown=5,
+        clip_rewards=False, gamma=0.9, lamda=0.95, clip=0.2, entropy_coef=entropy_coef,
+        epochs=epochs, lr=lr, min_lr=1e-5, lr_decay_factor=0.5, patience=10, cooldown=5,
         dropout_rate=0.0, l1_rate=0.0, l2_rate=0.0,
     )
 
@@ -158,3 +160,60 @@ def test_gradients_are_averaged_over_agents_with_experiences(
     for single, averaged in zip(one_agent, two_agents):
         np.testing.assert_allclose(single, averaged, rtol=1e-5, atol=1e-7)
 
+
+def test_each_epoch_applies_one_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = make_agent(epochs=3)
+    updates: list[int] = []
+    apply_gradients = agent.act_optimizer.apply_gradients
+
+    def counting_apply(grads_and_vars):
+        updates.append(1)
+        return apply_gradients(grads_and_vars)
+
+    monkeypatch.setattr(agent.act_optimizer, "apply_gradients", counting_apply)
+    collect(agent, [0, 1], steps=4, last_done=True)
+
+    agent.train([None, None])
+
+    assert len(updates) == 3
+
+
+def test_ratio_departs_from_one_after_the_first_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
+    tf.keras.utils.set_random_seed(0)
+    agent = make_agent(epochs=3, lr=1e-2)
+    collect(agent, [0], steps=8, last_done=True)
+    old_probs = np.array(list(agent.buffer.get_agent_exps(0))[-1], dtype=np.float32)
+    ratios: list[np.ndarray] = []
+    compute_action_probs = agent.compute_action_probs
+
+    def recording_probs(*args):
+        normalized_probs, action_probs = compute_action_probs(*args)
+        ratios.append(action_probs.numpy() / old_probs)
+        return normalized_probs, action_probs
+
+    monkeypatch.setattr(agent, "compute_action_probs", recording_probs)
+
+    agent.train([None, None])
+
+    assert len(ratios) == 3
+    # The first epoch evaluates the policy that collected the data...
+    np.testing.assert_allclose(ratios[0], 1.0, rtol=1e-4)
+    # ...and later epochs the updated one, which is what makes PPO's clip meaningful.
+    assert not np.allclose(ratios[-1], 1.0, rtol=1e-3)
+
+
+def test_actor_loss_clips_the_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = make_agent(entropy_coef=0.0)
+    normalized_probs = tf.constant([[0.5, 0.5, 0.0, 0.0, 0.0], [0.1, 0.9, 0.0, 0.0, 0.0]])
+    action_probs = tf.constant([0.5, 0.1])
+    monkeypatch.setattr(
+        agent, "compute_action_probs", lambda *args: (normalized_probs, action_probs)
+    )
+    old_probs = tf.constant([0.25, 0.25])
+    advantages = np.array([1.0, -1.0], dtype=np.float32)
+
+    loss = agent.compute_actor_loss(None, None, None, advantages, None, old_probs)
+
+    # Ratios are 2.0 and 0.4; with clip = 0.2 the pessimistic surrogates are
+    # min(2.0, 1.2) * 1 = 1.2 and min(-0.4, -0.8) = -0.8, so the loss is -mean = -0.2.
+    np.testing.assert_allclose(loss.numpy(), -0.2, rtol=1e-6)

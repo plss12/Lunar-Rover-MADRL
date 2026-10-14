@@ -156,6 +156,8 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
     lamda = 0.95
     clip = 0.2
     entropy_coef = 0.01
+    # Pasadas sobre cada lote de experiencias, dentro del rango usado en el paper de MAPPO
+    epochs = 5
 
     max_lr = 1e-3
     min_lr = 5e-5
@@ -171,7 +173,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
 
     # Inicialización del agente MAPPO
     agent = MAPPOAgent(grid_size, observation_shape, info_shape, action_dim, n_agents, clip_rewards,
-                       gamma, lamda, clip, entropy_coef, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
+                       gamma, lamda, clip, entropy_coef, epochs, max_lr, min_lr, lr_decay_factor, patiente, cooldown, 
                        dropout_rate, l1_rate, l2_rate, 
                        actor_path, critic_path, parameters_path)
     
