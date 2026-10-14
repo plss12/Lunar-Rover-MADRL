@@ -1,5 +1,7 @@
 import os
+import re
 import csv
+import h5py
 import numpy as np
 import tensorflow as tf
 from enum import Enum
@@ -82,12 +84,12 @@ def check_file_exists(filename):
 
 # Función para escribir en un csv la evolución de las métricas del entrenamiento de dddql
 def csv_save_train_dddql(algorithm, initial_steps, final_steps, total_reward, average_reward, average_loss, num_episodes, max_steps):
-    file_path = 'training_metrics_dddql.csv'
+    file_path = 'saved_trains/training_metrics_dddql.csv'
     fieldnames = ['algorithm', 'initial_steps', 'final_steps', 'total_reward', 'average_reward', 'average_loss', 'num_episodes', 'max_steps']
     
     if not os.path.isfile(file_path):
         # Inicializar archivo CSV si no existe para guardar métricas
-        with open('training_metrics_dddql.csv', mode='w', newline='') as csv_file:
+        with open(file_path, mode='w', newline='') as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 
@@ -99,12 +101,12 @@ def csv_save_train_dddql(algorithm, initial_steps, final_steps, total_reward, av
 
 # Función para escribir en un csv la evolución de las métricas del entrenamiento de mappo
 def csv_save_train_mappo(algorithm, initial_steps, final_steps, total_reward, average_reward, average_actor_loss, average_critic_loss, num_episodes, max_steps):
-    file_path = 'training_metrics_mappo.csv'
+    file_path = 'saved_trains/training_metrics_mappo.csv'
     fieldnames = ['algorithm', 'initial_steps', 'final_steps', 'total_reward', 'average_reward', 'average_actor_loss', 'average_critic_loss', 'num_episodes', 'max_steps']
     
     if not os.path.isfile(file_path):
         # Inicializar archivo CSV si no existe para guardar métricas
-        with open('training_metrics_mappo.csv', mode='w', newline='') as csv_file:
+        with open(file_path, mode='w', newline='') as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 
@@ -211,3 +213,50 @@ def normalize_valid_probs(masked_prob, mask):
 # Calcula la distancia euclidiana entre dos puntos (x, y)
 def calculate_distance(pos1, pos2):
     return np.sqrt((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2)
+
+def _decode(value):
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+# Agrupa las capas por tipo ('conv2d', 'dense'...) ordenadas por el sufijo numérico
+# que Keras añade a su nombre, es decir, por orden de creación dentro de cada tipo
+def _layers_by_creation_order(names):
+    groups = {}
+    for name in names:
+        match = re.fullmatch(r'(.+?)(?:_(\d+))?', name)
+        groups.setdefault(match.group(1), []).append((int(match.group(2) or 0), name))
+    return {kind: [name for _, name in sorted(layers)] for kind, layers in groups.items()}
+
+# Carga los pesos de un modelo aceptando también el formato h5 de Keras 2 (tf.keras
+# <= 2.15), con el que se guardaron los pesos del modelo DDDQL entregado. Keras 3 no
+# sabe leer ese formato si el fichero termina en '.weights.h5', así que se asignan a
+# mano. Las capas se emparejan por tipo y orden de creación porque el orden en que
+# Keras 2 las guarda ('layer_names') no coincide con el de Keras 3, y algunas capas
+# densas tienen la misma forma, por lo que emparejarlas por posición las mezclaría
+def load_weights_compat(model, file_path):
+    with h5py.File(file_path, 'r') as f:
+        # Solo el formato de Keras 2 guarda la lista de capas como atributo
+        if 'layer_names' not in f.attrs:
+            legacy_weights = None
+        else:
+            legacy_weights = {}
+            for layer_name in map(_decode, f.attrs['layer_names']):
+                weight_names = [_decode(w) for w in f[layer_name].attrs['weight_names']]
+                if weight_names:
+                    legacy_weights[layer_name] = [np.array(f[layer_name][w]) for w in weight_names]
+
+    if legacy_weights is None:
+        model.load_weights(file_path)
+        return
+
+    model_layers = {layer.name: layer for layer in model.layers if layer.weights}
+    saved_groups = _layers_by_creation_order(legacy_weights)
+    model_groups = _layers_by_creation_order(model_layers)
+
+    if {k: len(v) for k, v in saved_groups.items()} != {k: len(v) for k, v in model_groups.items()}:
+        raise ValueError(f"Las capas guardadas en {file_path} no coinciden con las del modelo: "
+                         f"{sorted(legacy_weights)} frente a {sorted(model_layers)}")
+
+    for kind, saved_names in saved_groups.items():
+        for saved_name, model_name in zip(saved_names, model_groups[kind]):
+            # set_weights comprueba que las formas coinciden y lanza un error si no
+            model_layers[model_name].set_weights(legacy_weights[saved_name])

@@ -118,6 +118,9 @@ def main():
         case 'MAPPO':
             df = pd.read_csv('saved_trains/training_metrics_mappo.csv')
             loss = 'average_actor_loss'
+        case _:
+            print("El algoritmo seleccionado no existe")
+            return
 
     loss_graph(df, loss, algorithm)
     avg_reward_graph(df, algorithm)

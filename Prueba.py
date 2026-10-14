@@ -85,7 +85,7 @@ def prueba_conjunta(n_agents, grid_size, vision_range, screen_info):
     # Acciones realizadas conjuntamente por el env
     while not done:
         actions = env.action_space.sample()
-        obs, visits, reward, done, truncated, info = env.step(actions)
+        obs, reward, done, truncated, info = env.step(actions)
         # print(f"Finalizada fase de ejecución con {reward} de recompensa")
     
     print("Simulación completada")
@@ -104,9 +104,9 @@ def prueba_individual(n_agents, grid_size, vision_range, screen_info):
     dones = [False]*n_agents
     while not all(dones):
         for i, rover in enumerate(env.unwrapped.rovers):
-            if rover.done == False:
+            if not rover.done:
                 action = random.choice(rover.get_movements())
-                obs, reward, visits, done, info = rover.step(action)
+                obs, visits, reward, done, info = rover.step(action)
                 # print(f"Rover {i} realiza movimiento {action} con recompensa {reward}")
             else:
                 dones[i] = True

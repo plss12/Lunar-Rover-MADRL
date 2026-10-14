@@ -1,13 +1,13 @@
 import numpy as np
 import random
 from gym_lunar_rover.envs.Lunar_Rover_env import *
-from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau
+from gym_lunar_rover.envs.Utils import CustomReduceLROnPlateau, load_weights_compat
 from collections import deque
 import pickle
 import tensorflow as tf
 from tensorflow.keras.models import Model # type: ignore
 from tensorflow.keras.regularizers import l1, l2, l1_l2 # type: ignore
-from tensorflow.keras.layers import Layer, Dense, Flatten, Conv2D, Input, BatchNormalization, Dropout, Concatenate, ReLU # type: ignore
+from tensorflow.keras.layers import Layer, Dense, Flatten, Conv2D, Input, Dropout, Concatenate # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
 
 class ReduceMeanLayer(Layer):
@@ -199,7 +199,7 @@ class DoubleDuelingDQNAgent:
         self.primary_network.save_weights(file_path)
 
     def load_model(self, file_path):
-        self.primary_network.load_weights(file_path)
+        load_weights_compat(self.primary_network, file_path)
         self.update_target_network()
         self.optimizer = Adam(learning_rate=self.lr)
         self.primary_network.compile(loss='mse', optimizer=self.optimizer)
@@ -324,7 +324,7 @@ class InferenceDDDQNAgent:
         self.action_dim = action_dim
         self.primary_network = dddqn_model(observation_shape, info_shape, action_dim)
         self.primary_network.compile(loss='mse', optimizer='adam')
-        self.primary_network.load_weights(model_path)
+        load_weights_compat(self.primary_network, model_path)
 
     def act(self, observation, visits, info, available_actions):
         # Ajustamos las dimensiones de la observación
