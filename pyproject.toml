@@ -1,0 +1,52 @@
+[project]
+name = "gym-lunar-rover"
+version = "0.1"
+description = "Multi-agent lunar rover path planning with Deep Reinforcement Learning (DDDQL and MAPPO)."
+readme = "README.md"
+authors = [{ name = "Pedro Luis Soto Santos", email = "pepoluis712@gmail.com" }]
+# `match` statements require Python 3.10+; TensorFlow ships wheels up to 3.13.
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "gymnasium>=1.4.0",
+    "h5py>=3.14.0",
+    "matplotlib>=3.10.9",
+    "numpy>=2.2.6",
+    "pandas>=2.3.3",
+    "pygame>=2.6.1",
+    "tensorflow>=2.21.0",
+    "tensorflow-probability[tf]>=0.25.0",
+]
+
+[project.urls]
+Repository = "https://github.com/plss12/Lunar-Rover-MADRL"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gym_lunar_rover*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = [
+    # The package re-exports its modules through star imports by design.
+    "F403",
+    "F405",
+    # `zip(strict=...)` would change behaviour in existing call sites.
+    "B905",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Lets the tests import the top-level scripts (Train.py, Test.py).
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+]
