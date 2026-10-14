@@ -11,9 +11,12 @@ vision_range = 3
 know_pos = False
 observation_shape = vision_range*2+1
 info_shape = 7
+# Con 'human' se muestra la simulación durante el entrenamiento, pero el
+# renderizado limita la velocidad a render_fps pasos por segundo
+render_mode = None
 
-env = gym.make('lunar-rover-v0', render_mode='human', n_agents=n_agents, grid_size=grid_size, vision_range=vision_range, know_pos=know_pos)
-action_dim = env.action_space.nvec[0]
+env = gym.make('lunar-rover-v0', render_mode=render_mode, n_agents=n_agents, grid_size=grid_size, vision_range=vision_range, know_pos=know_pos)
+action_dim = int(env.action_space.nvec[0])
 
 def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, parameters_path=None):
 
@@ -102,7 +105,7 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
                 dones[i] = done
                 
                 episode_rewards.append(reward)
-                if loss:
+                if loss is not None:
                     episode_losses.append(loss)
 
                 count_steps +=1
@@ -130,7 +133,8 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
 
     total_reward = sum(total_rewards)
     average_reward = round(total_reward / count_steps, 2)
-    average_loss = round(float(np.mean(total_losses)), 4)
+    # Si todos los steps han sido de calentamiento no hay ningún loss
+    average_loss = round(float(np.mean(total_losses)), 4) if total_losses else 0
     num_episodes = len(total_episodes_steps)
     max_steps = max(total_episodes_steps)
 
@@ -139,6 +143,12 @@ def train_dddql(total_steps, initial_steps, model_path=None, buffer_path=None, p
           f'un total de {num_episodes} episodios completados\n')
 
     return total_reward, average_reward, average_loss, num_episodes, max_steps
+
+# Estado normalizado del mapa en el que se encuentra cada Rover desde su perspectiva, o None
+# si ha terminado, para que MAPPO estime el valor de las trayectorias que se cortan al entrenar
+def get_last_states():
+    return [None if rover.done else (normalize_obs(rover.get_rovers_state()), normalize_obs(rover.get_no_rovers_state()))
+            for rover in env.unwrapped.rovers]
 
 def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, parameters_path=None):
     # Hiperparámetros
@@ -222,7 +232,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
                 
                 # Entrenamos si ya hemos alcanzado la frecuencia de entrenamiento
                 if episode_steps % train_freq == 0:
-                    actor_loss, critic_loss = agent.train()
+                    actor_loss, critic_loss = agent.train(get_last_states())
                     episode_actor_losses.append((actor_loss, train_freq))
                     episode_critic_losses.append((critic_loss, train_freq))
                     last_update_step = count_steps
@@ -233,7 +243,7 @@ def train_mappo(total_steps, initial_steps, actor_path=None, critic_path=None, p
         # Entrenamos si vamos a comenzar un nuevo episodio y no hemos entrenado en este paso
         if count_steps > last_update_step:
             steps_since_last_update = count_steps - last_update_step
-            actor_loss, critic_loss = agent.train()
+            actor_loss, critic_loss = agent.train(get_last_states())
             episode_actor_losses.append((actor_loss, steps_since_last_update))
             episode_critic_losses.append((critic_loss, steps_since_last_update))
         
